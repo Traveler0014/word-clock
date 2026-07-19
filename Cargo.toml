@@ -1,0 +1,9 @@
+[workspace]
+resolver = "2"
+members = ["app", "wordclock-core"]
+
+[workspace.dependencies]
+log = "0.4"
+anyhow = "1"
+smart-leds = "0.3"
+smart-leds-trait = "0.3"

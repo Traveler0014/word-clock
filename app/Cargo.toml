@@ -1,0 +1,18 @@
+[package]
+name = "word-clock"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+wordclock-core = { path = "../wordclock-core" }
+log = { workspace = true }
+anyhow = { workspace = true }
+smart-leds = { workspace = true }
+smart-leds-trait = { workspace = true }
+esp-idf-svc = { version = "0.51", features = ["binstart"] }
+# 注意: ws2812-esp32-rmt-driver 依赖的 esp-idf-hal 版本需与 esp-idf-svc 传递依赖一致，
+# 首次编译若报版本冲突，在此显式 pin 匹配版本。
+ws2812-esp32-rmt-driver = "0.13"
+
+[build-dependencies]
+embuild = "0.33"

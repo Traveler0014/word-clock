@@ -1,0 +1,4 @@
+# 目标芯片（与 .cargo/config.toml 的 MCU 保持一致）
+CONFIG_IDF_TARGET="esp32c5"
+# console/日志走内置 USB-Serial-JTAG（/dev/ttyACM0）
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y

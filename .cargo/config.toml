@@ -1,0 +1,10 @@
+[build]
+target = "riscv32imac-esp-espidf"
+rustflags = ["--cfg", "espidf_time64"]
+
+[target.riscv32imac-esp-espidf]
+linker = "ldproxy"
+runner = "espflash flash --monitor"
+
+[env]
+MCU = "esp32c5"
