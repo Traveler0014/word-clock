@@ -2,9 +2,16 @@
 target = "riscv32imac-esp-espidf"
 rustflags = ["--cfg", "espidf_time64"]
 
+# esp 目标是 tier-3：std 从源码构建（rust-src 已装到 esp 工具链内）
+[unstable]
+build-std = ["std", "panic_abort"]
+
 [target.riscv32imac-esp-espidf]
 linker = "ldproxy"
 runner = "espflash flash --monitor"
 
 [env]
 MCU = "esp32c5"
+# esp-idf-sys managed 安装的 IDF 版本（eim 的 v6.0.2 python 环境不完整，且 sys 0.36 未必兼容 v6）
+# hal 0.45 对 esp32c5 支持不全且与 v5.4+ API 漂移；hal 0.46 + IDF v5.5.1 为验证组合
+ESP_IDF_VERSION = "v5.5.1"

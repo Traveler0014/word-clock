@@ -10,10 +10,10 @@ use log::info;
 /// 凭据从编译期环境变量读取：
 /// `WIFI_SSID=xxx WIFI_PASSWORD=yyy cargo run -p word-clock`
 pub fn connect(
-    modem: Modem,
+    modem: Modem<'static>,
     sysloop: EspSystemEventLoop,
     nvs: EspDefaultNvsPartition,
-) -> Result<BlockingWifi<'static>> {
+) -> Result<BlockingWifi<EspWifi<'static>>> {
     let ssid = option_env!("WIFI_SSID").unwrap_or("YOUR_SSID");
     let pass = option_env!("WIFI_PASSWORD").unwrap_or("");
 

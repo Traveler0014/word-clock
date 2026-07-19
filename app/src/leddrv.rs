@@ -1,9 +1,8 @@
 use std::time::Duration;
 
 use anyhow::Result;
-use esp_idf_svc::hal::{gpio::OutputPin, peripheral::Peripheral, rmt::RmtChannel};
-use smart_leds::RGB8;
-use smart_leds_trait::SmartLedsWrite;
+use esp_idf_svc::hal::{gpio::OutputPin, rmt::RmtChannel};
+use smart_leds_trait::{RGB8, SmartLedsWrite};
 use wordclock_core::{Frame, TOTAL_LEDS};
 use ws2812_esp32_rmt_driver::Ws2812Esp32Rmt;
 
@@ -29,13 +28,7 @@ pub struct LedDriver<'d> {
 
 impl<'d> LedDriver<'d> {
     /// 例：`LedDriver::new(peripherals.rmt.channel0, peripherals.pins.gpio4)`
-    ///
-    /// 首次编译时若 `Ws2812Esp32Rmt::new` / `write` 签名与所用 crate 版本不符，
-    /// 按 ws2812-esp32-rmt-driver 当前文档微调本文件即可（逻辑不变）。
-    pub fn new(
-        channel: impl Peripheral<P = impl RmtChannel> + 'd,
-        pin: impl Peripheral<P = impl OutputPin> + 'd,
-    ) -> Result<Self> {
+    pub fn new(channel: impl RmtChannel + 'd, pin: impl OutputPin + 'd) -> Result<Self> {
         Ok(Self {
             ws: Ws2812Esp32Rmt::new(channel, pin)?,
         })

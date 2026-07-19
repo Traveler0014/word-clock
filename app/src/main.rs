@@ -3,7 +3,7 @@ mod time_svc;
 mod wifi;
 
 use anyhow::Result;
-use esp_idf_svc::hal::prelude::Peripherals;
+use esp_idf_svc::hal::peripherals::Peripherals;
 use log::info;
 
 fn main() -> Result<()> {

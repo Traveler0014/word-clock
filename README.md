@@ -24,8 +24,25 @@ espup install                          # 装 esp Rust 工具链（预编译 std�
 source env.sh                          # 注入 IDF + esp 工具链环境
 ```
 
-> esp-idf-sys 需要 ESP-IDF（本机由 eim 装在 `~/.espressif/v6.0.2`）。
-> 若 v6.0 与 esp-idf-sys 不兼容，用 eim 再装一个 v5.5 LTS，改 `env.sh` 指向即可共存切换。
+## 版本锁定（已验证的组合，勿随意升級）
+
+- `esp-idf-svc 0.51` / `esp-idf-hal 0.45` + `ws2812-esp32-rmt-driver 0.13`
+- **IDF v5.4.2**（esp-idf-sys managed 安装在 `.embuild/`）：v5.5 与 hal 0.45 API 不兼容；v5.2 不支持 C5
+- esp Rust 工具链 1.95.0（nightly fork，`build-std` 编译 std）
+
+## 网络加速（国内必做）
+
+构建命令需要两个环境变量（git clone 与 IDF 工具下载加速）：
+
+```bash
+GIT_CONFIG_COUNT=1 \
+GIT_CONFIG_KEY_0='url.https://gh-proxy.com/https://github.com/.insteadOf' \
+GIT_CONFIG_VALUE_0='https://github.com/' \
+IDF_GITHUB_ASSETS='dl.espressif.com/github_assets' \
+cargo build -p word-clock
+```
+
+> eim 安装的 IDF v6.0.2（`~/.espressif`）与本项目无关；其 python env 缺失需跑 `install.sh` 补齐后才可用于其他 IDF 项目。
 
 ## 常用命令
 

@@ -6,11 +6,10 @@ use log::info;
 
 /// 启动 SNTP（国内 NTP 服务器优先）并设置时区 UTC+8（中国无夏令时）
 pub fn start_sntp() -> Result<EspSntp<'static>> {
-    let conf = SntpConf {
-        servers: ["ntp.aliyun.com", "cn.pool.ntp.org"],
-        ..Default::default()
-    };
-    let sntp = EspSntp::new_with_conf(&conf)?;
+    // 注意: IDF 默认 SNTP_MAX_SERVERS=1，只能设一个服务器
+    let mut conf = SntpConf::default();
+    conf.servers[0] = "ntp.aliyun.com";
+    let sntp = EspSntp::new(&conf)?;
 
     // newlib 时区：POSIX 格式 "CST-8" 表示 UTC+8
     std::env::set_var("TZ", "CST-8");

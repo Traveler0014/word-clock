@@ -2,6 +2,10 @@
 resolver = "2"
 members = ["app", "wordclock-core"]
 
+# hal 0.46 时代暂无匹配发行版，本地 vendor 后 bump 其 hal/sys 依赖
+[patch.crates-io]
+ws2812-esp32-rmt-driver = { path = "vendor/ws2812-esp32-rmt-driver" }
+
 [workspace.dependencies]
 log = "0.4"
 anyhow = "1"
