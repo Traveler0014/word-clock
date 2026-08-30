@@ -1,5 +1,7 @@
 # Word Clock 字钟项目
 
+QLOCKTWO-style English word clock — ESP32-C5 + WS2812B (114 LEDs), built with Rust (esp-idf-svc on ESP-IDF v5.5.1), parametric 3D-printed enclosure.
+
 QLOCKTWO 风格英文字钟：11×10 字母阵 + 4 角分钟点，ESP32-C5 + WS2812B（60灯/米），结构件 3D 打印。
 
 **当前状态：Phase A-MVP 实机已点亮**（自检 → WiFi → SNTP → 每分钟刷新全链路跑通，2026-08）。
@@ -32,3 +34,7 @@ cargo test -p wordclock-core --target x86_64-unknown-linux-gnu   # 逻辑层测�
 ```
 
 编译刷写与日志调试见 [docs/development.md](docs/development.md)。
+
+## License
+
+[MIT](LICENSE)
