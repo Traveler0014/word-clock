@@ -38,7 +38,7 @@ python3 tools/uart_sniff.py
 2. **烧录需手动进下载模式**：按住 BOOT → 短按 RESET → 松开 BOOT（espflash 自动复位经 usbipd 不可靠）。
 3. **烧录前停掉 uart_sniff**：串口被占用会导致 espflash 同步失败。
 4. **uart_sniff 的 dtr/rts 必须为 False**：拉住会把芯片摁进下载模式（`tools/uart_sniff.py` 已正确处理，勿改）。
-5. **WSL2 + usbipd 环境**：设备复位会掉线，靠 Windows 侧 auto-attach 自动重连；ttyACM 编号会漂移。
+5. **WSL2 + usbipd 环境**：设备复位会掉线；Windows 侧用 `scripts/windows/usb-up.ps1` 一键 bind + auto-attach（结束用 `usb-down.ps1`）；ttyACM 编号会漂移。
 
 ## 代码级红线（改动前先读对应注释）
 

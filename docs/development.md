@@ -19,7 +19,12 @@ source firmware/env.sh                 # 注入 IDF + esp 环境（每次新终�
 | UART 口 | CH9102F（`1a86:55d3`） | **日志主控制台**，复位不断线，监听常驻 | `/dev/ttyACM*`（编号会变） |
 | USB-JTAG 口 | Espressif `303a:1001` | **烧录 / JTAG 调试**，复位会重新枚举 | `/dev/ttyACM*` |
 
-WSL2 下两台设备都需 `usbipd bind` + `attach`；建议开 `usbipd attach --wsl --auto-attach --hardware-id <vid:pid>` 跟随重枚举。
+WSL2 下两台设备都需 `usbipd bind` + `attach`；可直接用仓库自带的 Windows 脚本（bind/attach/detach/unbind 一键化，详见 [scripts/windows/README.md](../scripts/windows/README.md)）：
+
+```powershell
+.\usb-up.ps1        # 调试开始（含 auto-attach，断线自动重连）
+.\usb-down.ps1      # 调试结束，归还设备
+```
 
 WSL2/usbipd 场景烧录必须**手动进下载模式**（板载自动复位序列经 USB/IP 转发不可靠）：
 
