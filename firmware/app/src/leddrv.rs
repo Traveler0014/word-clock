@@ -1,6 +1,8 @@
 use std::time::Duration;
 
 use anyhow::Result;
+// legacy rmt api：vendor 驱动锁定 hal 0.46 旧接口，新版 rmt api 不兼容，deprecation 为预期
+#[allow(deprecated)]
 use esp_idf_svc::hal::{gpio::OutputPin, rmt::RmtChannel};
 use smart_leds_trait::{RGB8, SmartLedsWrite};
 use wordclock_core::{Frame, TOTAL_LEDS};
@@ -28,6 +30,7 @@ pub struct LedDriver<'d> {
 
 impl<'d> LedDriver<'d> {
     /// 例：`LedDriver::new(peripherals.rmt.channel0, peripherals.pins.gpio4)`
+    #[allow(deprecated)]
     pub fn new(channel: impl RmtChannel + 'd, pin: impl OutputPin + 'd) -> Result<Self> {
         Ok(Self {
             ws: Ws2812Esp32Rmt::new(channel, pin)?,

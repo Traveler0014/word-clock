@@ -1,5 +1,8 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
+// vendored 补丁版：锁定 esp-idf-hal 0.46 的 legacy rmt api（新版 rmt api 不兼容），
+// deprecation 警告为预期行为，统一压制
+#![allow(deprecated)]
 #![doc = include_str!("../README.md")]
 
 #[cfg(all(not(feature = "std"), feature = "alloc"))]

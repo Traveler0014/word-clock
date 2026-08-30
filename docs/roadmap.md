@@ -2,12 +2,16 @@
 
 ## Phase A-MVP（当前）— 路线A：Rust std on esp-idf-svc
 
+> 状态：实机点亮 ✅（13:01 → 14 leds，2026-08-30）。踩坑详见 `firmware/README.md`。
+
 - [x] 工程脚手架（workspace: app + wordclock-core）
-- [x] 字库映射 + 时间逻辑 + 宿主机单元测试
-- [ ] espup/espflash 工具链安装（后台进行中）
-- [ ] 首次编译通过（验证 esp-idf-sys ↔ IDF v6.0.2，不兼容则切 v5.5）
-- [ ] 实机刷写：自检灯链 → WiFi → SNTP → 每分钟刷新
-- [ ] 灯条平铺实测：全时间刻度正确、蛇形方向对齐
+- [x] 字库映射 + 时间逻辑 + 宿主机单元测试（9 通过）
+- [x] espup/espflash 工具链安装
+- [x] 首次编译通过（svc 0.52 / hal 0.46 + IDF v5.5.1，vendor ws2812 补丁版）
+- [x] 实机刷写：自检灯链 → WiFi → SNTP → 每分钟刷新（2026-08 实测通过，
+      WiFi auth_method 修复后 2.7s 连上，NTP 2s 同步，IP 192.168.1.110）
+- [ ] 灯条平铺实测：全时间刻度正确、蛇形方向对齐（4 灯样本已验证链路/级联/整帧刷新，
+      待 114 灯全量验证）
 
 ## Phase A-Full
 

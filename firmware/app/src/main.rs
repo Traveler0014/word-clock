@@ -14,6 +14,7 @@ fn main() -> Result<()> {
     let peripherals = Peripherals::take()?;
 
     // LED 初始化 + 上电自检（RGB 全扫一遍，验证灯链与供电后再进网络流程）
+    #[allow(deprecated)] // legacy rmt api，同 leddrv.rs 注释
     let mut leds = leddrv::LedDriver::new(peripherals.rmt.channel0, peripherals.pins.gpio4)?;
     leds.self_test()?;
 
