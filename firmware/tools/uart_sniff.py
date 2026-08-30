@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""持久监听：设备断开自动重开，自动匹配任意 /dev/ttyACM*（编号会变）。"""
+"""UART 日志监听（CH9102F 口，开发期常驻）。
+
+- 自动发现 /dev/ttyACM*（枚举编号会变）并自动重连
+- dtr/rts 必须为 False：CH9102F 的 DTR/RTS 接自动下载电路，拉住会把
+  IO0 摁低，芯片每次复位都进下载模式（烧完不跑、日志静默）
+- 用法：python3 tools/uart_sniff.py
+- 烧录前必须停掉本脚本（占用 USB-JTAG 口会令 espflash 同步失败；
+  本脚本只碰 UART 口，但若枚举编号漂移到 JTAG 口需留意）
+"""
 import glob
 import sys
 import time

@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use esp_idf_svc::sntp::{EspSntp, SntpConf, SyncStatus};
-use log::info;
+use log::{info, warn};
 
 /// 启动 SNTP（国内 NTP 服务器优先）并设置时区 UTC+8（中国无夏令时）
 pub fn start_sntp() -> Result<EspSntp<'static>> {
@@ -19,9 +19,22 @@ pub fn start_sntp() -> Result<EspSntp<'static>> {
     Ok(sntp)
 }
 
+/// 等待 NTP 同步完成。
+/// 每 5s 汇报一次状态：WiFi 通但 NTP 不通（DNS/UDP 123 被拦）时避免静默卡死无法排查。
 pub fn wait_synced(sntp: &EspSntp) {
     info!("waiting for NTP sync ...");
-    while sntp.get_sync_status() != SyncStatus::Completed {
+    let mut last_log = 0u64;
+    loop {
+        match sntp.get_sync_status() {
+            SyncStatus::Completed => break,
+            s => {
+                let now = unsafe { esp_idf_svc::sys::time(core::ptr::null_mut()) } as u64;
+                if now - last_log >= 5 {
+                    last_log = now;
+                    warn!("ntp not synced yet, status = {s:?}");
+                }
+            }
+        }
         std::thread::sleep(Duration::from_millis(250));
     }
     info!("NTP synced");

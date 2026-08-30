@@ -4,7 +4,7 @@
 
 | 物料 | 规格 | 备注 |
 |---|---|---|
-| ESP32-C5-DevKit | 内置 USB-Serial-JTAG | 刷写/调试用 `/dev/ttyACM0` |
+| ESP32-C5-DevKit | 双 USB 口：UART（CH9102F）= 日志主控，USB-JTAG = 烧录/调试 | 双线常驻，详见 docs/development.md |
 | WS2812B 灯条 | 60灯/米 | 需 114 颗 ≈ 1.9m |
 | 拓竹 3D 打印机 | 250×250×250 | 结构件 |
 
