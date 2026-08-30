@@ -1,0 +1,17 @@
+# Rust / ESP 构建产物
+**/target/
+**/.embuild/
+**/sdkconfig
+**/sdkconfig.old
+**/dependencies.lock
+
+# 3D 打印生成物（源码为 OpenSCAD，产物按需导出）
+*.stl
+*.3mf
+*.gcode
+
+# 编辑器/系统
+.vscode/
+.idea/
+*.swp
+.DS_Store
