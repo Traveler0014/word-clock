@@ -1,0 +1,7 @@
+[package]
+name = "wordclock-core"
+version = "0.1.0"
+edition = "2021"
+description = "Word clock core logic: time -> LED frame. no_std, host-testable."
+
+[dependencies]

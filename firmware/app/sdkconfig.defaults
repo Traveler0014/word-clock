@@ -1,0 +1,7 @@
+# 目标芯片（与 .cargo/config.toml 的 MCU 保持一致）
+CONFIG_IDF_TARGET="esp32c5"
+# 主控制台 = UART0（CH9102F 口，复位不断线、不会重新枚举，开发期日志稳定）。
+# 注意：Rust log 的 stdout 输出只进主控制台；USB-Serial-JTAG 口保留烧录用
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+# Rust 栈帧较大，默认 3584 会触发 Stack protection fault（已实测）
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384

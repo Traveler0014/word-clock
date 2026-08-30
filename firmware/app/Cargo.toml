@@ -1,0 +1,16 @@
+[package]
+name = "word-clock"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+wordclock-core = { path = "../wordclock-core" }
+log = { workspace = true }
+anyhow = { workspace = true }
+smart-leds-trait = { workspace = true }
+esp-idf-svc = { version = "0.52", features = ["binstart"] }
+# hal 0.46 兼容版走 workspace 根部的 [patch.crates-io] vendor；Ws2812Esp32Rmt 需开此 feature
+ws2812-esp32-rmt-driver = { version = "0.13", features = ["smart-leds-trait"] }
+
+[build-dependencies]
+embuild = "0.33"

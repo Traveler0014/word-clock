@@ -1,0 +1,2 @@
+[toolchain]
+channel = "esp"   # espup install 提供的 esp fork（含 riscv32imac-esp-espidf 预编译 std）
