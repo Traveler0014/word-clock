@@ -15,3 +15,5 @@ MCU = "esp32c5"
 # esp-idf-sys managed 安装的 IDF 版本（eim 的 v6.0.2 python 环境不完整，且 sys 0.36 未必兼容 v6）
 # hal 0.45 对 esp32c5 支持不全且与 v5.4+ API 漂移；hal 0.46 + IDF v5.5.1 为验证组合
 ESP_IDF_VERSION = "v5.5.1"
+# esp-idf-sys 不会自动发现 app/sdkconfig.defaults，必须显式指定；relative=true 相对 firmware/ 根
+ESP_IDF_SDKCONFIG_DEFAULTS = { value = "app/sdkconfig.defaults", relative = true }
