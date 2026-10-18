@@ -111,6 +111,24 @@
   .seg button{border-radius:0; border-right-width:0}
   .seg button:last-child{border-right-width:1px}
   .hint{color:var(--ink3); font-size:11px; margin:6px 0 0; line-height:1.5}
+  textarea{
+    width:100%; background:#0d0d0d; color:var(--ink); border:1px solid var(--rule);
+    font:11px/1.5 ui-monospace,Menlo,Consolas,monospace; padding:6px; resize:vertical;
+  }
+  .btnish{
+    display:inline-block; border:1px solid var(--ink3); padding:4px 10px;
+    cursor:pointer; letter-spacing:.05em;
+  }
+  .btnish:hover{border-color:var(--ink2); color:#fff}
+  .modcard{border:1px solid var(--rule); padding:7px 8px; margin:8px 0}
+  .modhead{display:flex; justify-content:space-between; align-items:center; margin-bottom:6px}
+  .modhead b{font-weight:400; color:var(--ink); letter-spacing:.08em}
+  .del{border:0; color:var(--ink3); cursor:pointer; padding:0 4px; font-size:13px}
+  .del:hover{color:#c2452a}
+  .kv{display:flex; justify-content:space-between; align-items:center; gap:6px; margin:4px 0}
+  .kv > span{color:var(--ink2); font-size:11px}
+  .kv input[type=number], .kv input[type=text]{width:62px}
+  .kv select{max-width:104px}
   .wide{width:100%}
 
   /* ---- 数值视图 ---- */
@@ -162,65 +180,63 @@
 
   <aside>
     <fieldset>
-      <legend>星场</legend>
+      <legend>主题</legend>
+      <div class="row"><span>当前</span><span class="selwrap"><select id="themeSel"></select></span></div>
+      <div class="row"><span>名称</span><input type="text" id="themeName" style="width:170px"></div>
+      <div class="row">
+        <button id="themeSave">保存为自定义</button>
+        <button id="themeReset">恢复内置</button>
+      </div>
+      <div class="row">
+        <button id="themeDownload">下载 JSON</button>
+        <label class="btnish">上传…<input type="file" id="themeUpload" accept=".json,application/json" hidden></label>
+      </div>
+      <p class="hint">两套内置主题是同一份解释器的两份描述符。自定义主题存 localStorage，
+      可下载/上传；上传的是<b>数据</b>，不是代码（无循环、无分配、时间上界固定）。</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>星场（全局，所有状态共用）</legend>
       <div class="row"><span>星数</span><span><input type="range" id="p_starCount" min="0" max="80" step="1" value="32"><b id="v_starCount">32</b></span></div>
-      <div class="row"><span>亮星比例</span><span><input type="range" id="p_brightFrac" min="0" max="1" step="0.01" value="0.50"><b id="v_brightFrac">0.500</b></span></div>
-      <div class="row"><span>峰值 alpha</span><span><input type="range" id="p_peak" min="0" max="0.6" step="0.01" value="0.3"><b id="v_peak">0.30</b></span></div>
+      <div class="row"><span>亮星比例</span><span><input type="range" id="p_brightFrac" min="0" max="1" step="0.01" value="0.5"><b id="v_brightFrac">0.500</b></span></div>
+      <div class="row"><span>峰值 alpha</span><span><input type="range" id="p_peak" min="0" max="1" step="0.01" value="0.6"><b id="v_peak">0.600</b></span></div>
       <div class="row"><span>周期 最短/最长</span><span><input type="number" id="p_perMin" min="0.5" max="60" step="0.1" value="3.6"> – <input type="number" id="p_perMax" min="0.5" max="60" step="0.1" value="9.5"></span></div>
       <div class="row"><span>闪烁曲线</span><span class="seg">
         <button data-curve="sine">正弦</button><button data-curve="spike">尖峰</button><button data-curve="drift">漂移</button>
       </span></div>
-      <div class="row"><span>底色 floor</span><span><input type="range" id="p_floor" min="0" max="0.12" step="0.005" value="0.02"><b id="v_floor">0.020</b></span></div>
-      <div class="row"><span>星色偏移</span><span><input type="range" id="p_tintSpread" min="0" max="1" step="0.05" value="0.5"><b id="v_tintSpread">0.50</b></span></div>
+      <div class="row"><span>底色 floor</span><span><input type="range" id="p_floor" min="0" max="0.12" step="0.002" value="0.006"><b id="v_floor">0.006</b></span></div>
+      <div class="row"><span>星色偏移</span><span><input type="range" id="p_tintSpread" min="0" max="1" step="0.05" value="0.5"><b id="v_tintSpread">0.500</b></span></div>
       <div class="row"><span>planet 暖点</span><span><input type="checkbox" id="p_planet" checked> <input type="text" id="p_planetPos" value="8,1" style="width:52px"></span></div>
       <div class="row"><span>随机种子</span><span><input type="number" id="p_seed" value="20261018" step="1"></span></div>
     </fieldset>
 
     <fieldset>
-      <legend>输出（硬件模拟）</legend>
-      <div class="row"><span>gamma</span><span><input type="range" id="p_gamma" min="1" max="3" step="0.05" value="2.2"><b id="v_gamma">2.20</b></span></div>
+      <legend>状态编辑器 · <span id="curStateName">—</span></legend>
+      <div id="stateEditor"></div>
+      <p class="hint">这里编辑的是<b>当前主题里这个状态</b>的描述符：
+      星场覆盖（乘性）+ 叠加层生成器（各自带混合模式）。</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>渲染（硬件模拟）</legend>
+      <div class="row"><span>gamma</span><span><input type="range" id="p_gamma" min="1" max="3" step="0.05" value="2.2"><b id="v_gamma">2.200</b></span></div>
       <div class="row"><span>时间抖动</span><span><input type="checkbox" id="p_dither" checked></span></div>
       <div class="row"><span>色温</span><span class="seg">
         <button data-temp="cool">冷白</button><button data-temp="neutral">正白</button><button data-temp="warm">暖白</button><button data-temp="amber">琥珀</button>
       </span></div>
-      <div class="row"><span>泛光强度</span><span><input type="range" id="p_bloom" min="0" max="1" step="0.02" value="0.45"><b id="v_bloom">0.450</b></span></div>
-      <div class="row"><span>格栅/外框</span><span><input type="checkbox" id="p_grid" checked></span></div>
+      <div class="row"><span>泛光强度</span><span><input type="range" id="p_bloom" min="0" max="1" step="0.02" value="0.46"><b id="v_bloom">0.460</b></span></div>
       <div class="row"><span>相机曝光</span><span><input type="range" id="p_exposure" min="0.3" max="8" step="0.1" value="2"><b id="v_exposure">2.0</b></span></div>
+      <div class="row"><span>格栅/外框</span><span><input type="checkbox" id="p_grid" checked></span></div>
       <div class="row"><span>隐藏时间文字</span><span><input type="checkbox" id="p_hideText"></span></div>
-      <p class="hint">gamma 是"物理诚实度"：2.2 时 alpha 0.18 只值 6/255，暗部必然跳台阶——这就是固件上会看到的样子。<br>
-      相机曝光只放大预览观感（模拟暗室长时间曝光），<b>不改变</b>导出的 8bit 值。</p>
-    </fieldset>
-
-    <fieldset id="v2params">
-      <legend>生成器参数 · 星场调制</legend>
-      <div class="row"><span>风 周期 s</span><input type="number" id="p_windPeriod" value="5.5" step="0.1" style="width:56px"></div>
-      <div class="row"><span>风 宽度</span><input type="number" id="p_windWidth" value="0.2" step="0.01" style="width:56px"></div>
-      <div class="row"><span>风 低谷倍</span><input type="number" id="p_windFloor" value="0.3" step="0.05" style="width:56px"></div>
-      <div class="row"><span>潮汐 周期 s</span><input type="number" id="p_tidePeriod" value="26" step="1" style="width:56px"></div>
-      <div class="row"><span>潮汐 最暗倍</span><input type="number" id="p_tideLo" value="0.22" step="0.02" style="width:56px"></div>
-      <div class="row"><span>流星 间隔 s</span><input type="number" id="p_meteorEvery" value="3.5" step="0.1" style="width:56px"></div>
-      <div class="row"><span>流星 时长 s</span><input type="number" id="p_meteorDur" value="1.1" step="0.05" style="width:56px"></div>
-      <div class="row"><span>余烬 搏动 s</span><input type="number" id="p_emberPeriod" value="3.5" step="0.1" style="width:56px"></div>
-      <div class="row"><span>升级 演示 s</span><input type="number" id="p_otaDemo" value="14" step="0.5" style="width:56px"></div>
-      <div class="row"><span>停滞 抽搐 s</span><input type="number" id="p_revivePeriod" value="4" step="0.5" style="width:56px"></div>
-      <p class="hint">描述符只声明"哪个状态用哪些生成器"，数值全部在这里。两套主题共用同一份解释器。</p>
-    </fieldset>
-
-    <fieldset id="v1params">
-      <legend>生成器参数 · 叠加层</legend>
-      <div class="row"><span>扫带周期 s</span><input type="number" id="p_sweepPeriod" value="5.5" step="0.1" style="width:56px"></div>
-      <div class="row"><span>扫带宽度 列</span><input type="number" id="p_sweepWidth" value="2.2" step="0.1" style="width:56px"></div>
-      <div class="row"><span>扫带峰值</span><input type="number" id="p_sweepPeak" value="0.2" step="0.01" style="width:56px"></div>
-      <div class="row"><span>渐现间隔 s</span><input type="number" id="p_emergeStep" value="0.7" step="0.05" style="width:56px"></div>
-      <div class="row"><span>渐现淡入 s</span><input type="number" id="p_emergeFade" value="2.4" step="0.1" style="width:56px"></div>
-      <div class="row"><span>渐现上限 颗</span><input type="number" id="p_emergeMax" value="30" step="1" style="width:56px"></div>
-      <div class="row"><span>渐现峰值 α</span><input type="number" id="p_emergePeak" value="0.3" step="0.01" style="width:56px"></div>
-      <div class="row"><span>角点 step s</span><input type="number" id="p_chaseStep" value="0.8" step="0.05" style="width:56px"></div>
-      <div class="row"><span>角点峰值 α</span><input type="number" id="p_chasePeak" value="0.35" step="0.01" style="width:56px"></div>
-      <div class="row"><span>涟漪时长 s</span><input type="number" id="p_rippleDur" value="0.9" step="0.1" style="width:56px"></div>
-      <div class="row"><span>错误脉冲 alpha</span><input type="number" id="p_errPeak" value="0.35" step="0.01" style="width:56px"></div>
-      <div class="row"><span>换词淡入 ms</span><input type="number" id="p_textFade" value="260" step="10" style="width:56px"></div>
+      <div class="row"><span>进度演示 s</span><input type="number" id="p_demoSec" value="14" step="0.5" style="width:62px"></div>
       <p class="hint" id="alphaTable">α → 8bit 码值换算加载中…</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>描述符 JSON（逃生口）</legend>
+      <textarea id="descJson" rows="9" spellcheck="false"></textarea>
+      <div class="row"><button id="descApply">应用 JSON</button><button id="descReload">重新载入</button></div>
+      <p class="hint">整份主题的原文。可以直接粘贴别人分享的描述符，再「保存为自定义」。</p>
     </fieldset>
 
     <fieldset>
@@ -314,24 +330,17 @@ function timeToLit(hour24, minute) {
 
 /* ===================== 3. 参数 ===================== */
 const P = {
-  // 星场
-  starCount: 32, brightFrac: 0.50, peak: 0.60,
-  perMin: 3.6, perMax: 9.5, curve: "spike", floor: 0.006,
-  tintSpread: 0.5, planet: true, planetPos: "8,1", seed: 20261018,
-  // 输出
-  gamma: 2.2, dither: true, temp: "neutral", bloom: 0.45, grid: true,
+  // 星场身份（全局，决定这盏钟的"夜空"长什么样）
+  starCount: 32, brightFrac: 0.50, peak: 0.60, floor: 0.006,
+  perMin: 3.6, perMax: 9.5, curve: "spike", tintSpread: 0.5,
+  planet: true, planetPos: "8,1", seed: 20261018,
+  // 输出（硬件模拟）
+  gamma: 2.2, dither: true, temp: "neutral", bloom: 0.46, grid: true,
   exposure: 2.0, hideText: false,
-  // 母题
-  sweepPeriod: 5.5, sweepWidth: 2.2, sweepPeak: 0.40,
-  emergeStep: 0.7, emergeMax: 30, emergePeak: 0.30, emergeFade: 2.4,
-  chaseStep: 0.8, chasePeak: 0.35,
-  rippleDur: 0.9, errPeak: 0.35, textFade: 260,
-  // 星空语言（v2）
+  // 预览辅助：进度类生成器 demo 走完一遍的秒数（真机由 OTA/NTP 提供真实进度）
+  demoSec: 14,
+  // 当前主题
   theme: "stars",
-  windPeriod: 5.5, windWidth: 0.20, windFloor: 0.30,
-  tidePeriod: 26, tideLo: 0.22,
-  meteorEvery: 3.5, meteorDur: 1.1,
-  emberPeriod: 3.5, otaDemo: 14, revivePeriod: 4,
 };
 
 /* ===================== 4. 确定性随机 + 星表 ===================== */
@@ -447,21 +456,24 @@ function genStars(ov, t) {
 
   let peakMul = ov.peakMul != null ? ov.peakMul : 1;
   if (ov.tide) {
-    peakMul = P.tideLo + (1 - P.tideLo) * (0.5 - 0.5 * Math.cos(2 * Math.PI * t / P.tidePeriod));
+    const lo = ov.tide.lo != null ? ov.tide.lo : 0.22;
+    const per = ov.tide.period != null ? ov.tide.period : 26;
+    peakMul = lo + (1 - lo) * (0.5 - 0.5 * Math.cos(2 * Math.PI * t / per));
   }
 
   let gate = 1;
   if (ov.gate != null) {
-    gate = ov.gate === "demo" ? Math.min(1, (t % P.otaDemo) / (P.otaDemo * 0.86)) : ov.gate;
+    gate = ov.gate === "demo" ? Math.min(1, (t % P.demoSec) / (P.demoSec * 0.86)) : ov.gate;
   }
   const fallP = ov.fall ? Math.min(1.25, t / 3.2) : null;
 
   // 停滞抽搐：每 revivePeriod 秒有一颗星试图亮一下
   let twitchLed = -1, twitchA = 0;
   if (ov.twitch) {
-    const ph = (t % P.revivePeriod) / P.revivePeriod;
+    const per = ov.twitch.period != null ? ov.twitch.period : 4;
+    const ph = (t % per) / per;
     if (ph < 0.25 && STARS.length) {
-      const k = Math.floor(t / P.revivePeriod) % STARS.length;
+      const k = Math.floor(t / per) % STARS.length;
       twitchLed = STARS[k].led;
       twitchA = 0.5 * Math.sin(Math.PI * ph / 0.25);
     }
@@ -474,10 +486,12 @@ function genStars(ov, t) {
     let pm = peakMul;
 
     if (ov.wind) {                             // 乘性衰减波：绝不点亮新格子
+      const per = ov.wind.period != null ? ov.wind.period : 5.5;
+      const wid = ov.wind.width != null ? ov.wind.width : 0.20;
+      const lo = ov.wind.floor != null ? ov.wind.floor : 0.30;
       const pos = ov.wind.axis === "y" ? r / GEO.rows : c / GEO.cols;
-      const crest = ((t / P.windPeriod) % 1) * 1.4 - 0.2;
-      const g = gauss(pos - crest, P.windWidth);
-      pm *= P.windFloor + (1 - P.windFloor) * g;
+      const crest = ((t / per) % 1) * 1.4 - 0.2;
+      pm *= lo + (1 - lo) * gauss(pos - crest, wid);
     }
     if (k / n > gate) pm = 0;
     if (fallP != null && st.led / LETTER_LEDS < fallP * 1.1) pm = 0;
@@ -496,94 +510,157 @@ function genStars(ov, t) {
   }
 }
 
-/* ---------- 叠加层生成器 ---------- */
+/* ---------- 生成器默认值（描述符可覆盖任意一项） ---------- */
+const GDEF = {
+  band:    { period: 5.5, width: 2.2, peak: 0.40, axis: "x", blend: "add" },
+  ripple:  { dur: 0.9, peak: 0.28, width: 0.22, blend: "add" },
+  chase:   { step: 0.8, peak: 0.35, blend: "max" },
+  ignite:  { step: 0.7, fade: 2.4, max: 30, peak: 0.30, hold: 3.0, blend: "max" },
+  fillRow: { progress: "demo", peak: 0.50, blend: "max" },
+  pulse:   { period: 3.5, peak: 0.35, base: 0, sharp: 3, blend: "max" },
+  meteor:  { every: 3.5, dur: 1.1, tail: 4.6, peak: 0.75, blend: "max" },
+  fadeAll: { dur: 2.4, blend: "mul" },
+  tick:    { dur: 0.12, peak: 0.40, blend: "max" },
+  spell:   { letters: "KLARA", step: 0.24, fade: 0.14, hold: 0.55, persist: 0.12, peak: 0.95, blend: "max" },
+};
+const gp = (g, k) => (g[k] != null ? g[k] : GDEF[g.gen][k]);
+
+/* ---------- 叠加层生成器（封闭集合） ---------- */
 const GEN = {
-  // 加性光带（v1 的"柔光扫带"）
+  // 加性光带：axis = x（竖扫）/ y（横扫）/ diag（对角，用于开屏自检）
   band(g, t) {
-    const period = P.sweepPeriod, width = P.sweepWidth, peak = P.sweepPeak;
-    const pos = ((t / period) % 1) * (GEO.cols + 2 * width) - width;
+    const period = gp(g, "period"), width = gp(g, "width"), peak = gp(g, "peak"), axis = gp(g, "axis");
+    const span = axis === "y" ? GEO.rows : (axis === "diag" ? GEO.cols + GEO.rows : GEO.cols);
+    const pos = ((t / period) % 1) * (span + 2 * width) - width;
     for (let r = 0; r < GEO.rows; r++) {
       for (let c = 0; c < GEO.cols; c++) {
-        put(xyToIndex(r, c), peak * gauss(c - pos, width), "add", g.tint);
+        const u = axis === "y" ? r : (axis === "diag" ? c + r * (GEO.cols / GEO.rows) : c);
+        put(xyToIndex(r, c), peak * gauss(u - pos, width), "add", g.tint);
       }
     }
   },
-  // 径向涟漪（单次）
   ripple(g, t) {
-    const u = t / P.rippleDur;
+    const u = t / gp(g, "dur"), width = gp(g, "width"), peak = gp(g, "peak");
     if (u > 1.35) return;
-    const [r0, c0] = g.origin;
+    const [r0, c0] = g.origin || [GEO.rows - 1, 0];
     const env = u < 1 ? 1 : (1.35 - u) / 0.35;
     for (let r = 0; r < GEO.rows; r++) {
       for (let c = 0; c < GEO.cols; c++) {
         const d = Math.hypot((c - c0) / GEO.cols, (r - r0) / GEO.rows) * 1.6;
-        put(xyToIndex(r, c), 0.28 * gauss(d - u * 1.6, 0.22) * env, "add", g.tint);
+        put(xyToIndex(r, c), peak * gauss(d - u * 1.6, width) * env, "add", g.tint);
       }
     }
   },
-  // 四角点 chase（最小面积跑马灯）
   chase(g, t) {
-    const k = Math.floor((t / P.chaseStep) % 4);
-    const frac = ((t / P.chaseStep) % 4) - k;
+    const step = gp(g, "step"), peak = gp(g, "peak");
+    const k = Math.floor((t / step) % 4);
+    const frac = ((t / step) % 4) - k;
     const env = frac < 0.62 ? 1 : Math.max(0, 1 - (frac - 0.62) / 0.38);
-    put(LETTER_LEDS + k, P.chasePeak * env, "max", g.tint);
+    put(LETTER_LEDS + k, peak * env, "max", g.tint);
   },
-  // 星渐现（按星表顺序点亮，到上限后整场淡出）
   ignite(g, t) {
-    const fade = P.emergeFade, hold = 3.0, max = P.emergeMax;
-    const cycle = max * P.emergeStep + fade + hold;
+    const step = gp(g, "step"), fade = gp(g, "fade"), max = gp(g, "max"),
+          peak = gp(g, "peak"), hold = gp(g, "hold");
+    const cycle = max * step + fade + hold;
     const tt = t % cycle;
-    const outStart = max * P.emergeStep + fade;
+    const outStart = max * step + fade;
     const die = tt > outStart ? smooth((tt - outStart) / hold) : 0;
     for (let k = 0; k < STARS.length && k < max; k++) {
-      const a = smooth((tt - k * P.emergeStep) / fade);
+      const a = smooth((tt - k * step) / fade);
       if (a <= 0) continue;
-      put(STARS[k].led, P.emergePeak * a * (1 - die), "max", g.tint != null ? g.tint : 0);
+      put(STARS[k].led, peak * a * (1 - die), "max", g.tint != null ? g.tint : 0);
     }
   },
-  // 行主序填充（进度类：NTP / OTA / 自检）
   fillRow(g, t) {
-    const prog = g.progress === "demo" ? Math.min(1, (t % P.otaDemo) / (P.otaDemo * 0.86)) : g.progress;
+    const peak = gp(g, "peak");
+    const p = gp(g, "progress");
+    const prog = p === "demo" ? Math.min(1, (t % P.demoSec) / (P.demoSec * 0.86)) : p;
     for (let r = 0; r < GEO.rows; r++) {
       for (let c = 0; c < GEO.cols; c++) {
-        if (r * GEO.cols + c < prog * LETTER_LEDS) put(xyToIndex(r, c), g.peak, "max", g.tint);
+        if (r * GEO.cols + c < prog * LETTER_LEDS) put(xyToIndex(r, c), peak, "max", g.tint);
       }
     }
   },
-  // 单格脉冲（错误提示 / 余烬）
   pulse(g, t) {
-    const beat = Math.pow(0.5 - 0.5 * Math.cos(2 * Math.PI * t / g.period), g.sharp != null ? g.sharp : 3);
-    const a = (g.base || 0) + g.peak * beat;
-    const cells = g.cells || [g.cell];
+    const beat = Math.pow(0.5 - 0.5 * Math.cos(2 * Math.PI * t / gp(g, "period")), gp(g, "sharp"));
+    const a = gp(g, "base") + gp(g, "peak") * beat;
+    const cells = g.cells || [g.cell || [4, 5]];
     for (const [r, c] of cells) put(xyToIndex(r, c), a, "max", g.tint);
   },
-  // 流星（对角斜穿，带尾）
   meteor(g, t) {
-    const u = (t % P.meteorEvery) / P.meteorDur;
+    const u = (t % gp(g, "every")) / gp(g, "dur");
     if (u > 1) return;
-    const hx = -0.8 + u * (GEO.cols + 1.6);
-    const hy = hx * 0.82;
+    const tail = gp(g, "tail"), peak = gp(g, "peak");
+    const hx = -0.8 + u * (GEO.cols + 1.6), hy = hx * 0.82;
     for (let r = 0; r < GEO.rows; r++) {
       for (let c = 0; c < GEO.cols; c++) {
         const d = Math.hypot(c - hx, r - hy);
-        if (d > g.tail) continue;
-        put(xyToIndex(r, c), g.peak * Math.pow(1 - d / g.tail, 1.7) * (1 - u * 0.25), "max", g.tint);
+        if (d > tail) continue;
+        put(xyToIndex(r, c), peak * Math.pow(1 - d / tail, 1.7) * (1 - u * 0.25), "max", g.tint);
       }
     }
   },
-  // 全屏乘性衰减（归零 / 熄灯）
   fadeAll(g, t) {
-    const k = 1 - smooth(t / g.dur);
+    const k = 1 - smooth(t / gp(g, "dur"));
     for (let i = 0; i < TOTAL; i++) SIM_ALPHA[i] *= k;
   },
-  // 换词"滴答"：四角点短暂提亮
   tick(g, t) {
-    const u = t / g.dur;
+    const u = t / gp(g, "dur");
     if (u > 1) return;
-    const a = g.peak * (1 - smooth(u));
-    for (let k = 0; k < CORNER_LEDS; k++) put(LETTER_LEDS + k, a, "max", g.tint);
+    for (let k = 0; k < CORNER_LEDS; k++) put(LETTER_LEDS + k, gp(g, "peak") * (1 - smooth(u)), "max", g.tint);
+  },
+  // 拼写：在固定字母阵里找出这些字母的格子，逐个点亮（"名字星座"）
+  // 注意：面板是 QLOCKTWO 式固定字母镂空，所以这是"散落点亮"，不是从左到右写字。
+  spell(g, t) {
+    const letters = (g.letters || "").toUpperCase().replace(/[^A-Z]/g, "");
+    if (!letters) return;
+    const cells = resolveSpelling(letters);
+    const step = gp(g, "step"), fade = gp(g, "fade"), hold = gp(g, "hold"),
+          persist = gp(g, "persist"), peak = gp(g, "peak");
+    const total = cells.length * step + fade + hold;
+    const tt = t % (total + 0.6);
+    const die = tt > total ? smooth((tt - total) / 0.6) : 0;
+    for (let k = 0; k < cells.length; k++) {
+      const birth = k * step;
+      const inA = smooth((tt - birth) / fade);
+      if (inA <= 0) continue;
+      // 已拼出的字母留一点余晖，形成"星座"
+      const live = k === cells.length - 1 ? inA : Math.max(inA, persist);
+      put(cells[k], peak * live * (1 - die), "max", g.tint != null ? g.tint : 0);
+    }
   },
 };
+
+/* 字母 → 格子：每个字符在字母阵里挑一格。
+   规则：第一个字符取"最靠右下"的出现处（K 只在 (9,10)，天然收尾感），
+   之后每个字符取离上一格最近的出现处（曼哈顿距离），让序列像在画线。 */
+const SPELL_CACHE = {};
+function resolveSpelling(letters) {
+  if (SPELL_CACHE[letters]) return SPELL_CACHE[letters];
+  const spots = {};
+  for (let r = 0; r < GEO.rows; r++) {
+    for (let c = 0; c < GEO.cols; c++) {
+      const ch = GRID[r][c];
+      (spots[ch] = spots[ch] || []).push(xyToIndex(r, c));
+    }
+  }
+  const out = [];
+  let prev = null;
+  for (const ch of letters) {
+    const cands = spots[ch];
+    if (!cands || !cands.length) continue;      // 面板上不存在这个字母 → 跳过
+    let best = cands[0], bestD = Infinity;
+    for (const i of cands) {
+      const [r, c] = ledRC(i);
+      const d = prev == null ? -(r + c) : Math.abs(r - ledRC(prev)[0]) + Math.abs(c - ledRC(prev)[1]);
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    out.push(best);
+    prev = best;
+  }
+  SPELL_CACHE[letters] = out;
+  return out;
+}
 
 /* ---------- 解释器：描述符 + 状态 + 时间 → 114 个 alpha ---------- */
 let prevAlpha = new Float32Array(TOTAL);
@@ -607,7 +684,7 @@ function runState(desc, state, t, clockLit) {
 
 function sim(t, state, clockLit) {
   const out = SIM_ALPHA;
-  const desc = THEME_DESC[P.theme] || THEME_DESC.stars;
+  const desc = descFor(P.theme);
 
   // 状态切换 → 记住上一帧，做过渡（这就是"动效之间怎么切换"的通用答案）
   if (state !== lastState) {
@@ -637,12 +714,16 @@ const THEME_DESC = {
     name: "星空语言 v2",
     transition: { dur: 700 },
     states: {
-      boot:                { stars: { rate: 1.8, peakMul: 0.5 } },
+      // 开屏两段式：① 对角快扫 550ms（验证 114 颗全活，峰值压低省电流）
+      //             ② 名字星座（KLARA 在固定字母阵里逐个点亮，见 resolveSpelling）
+      boot:                { stars: { rate: 1.8, peakMul: 0.35 }, mods: [
+                               { gen: "band", axis: "diag", period: 0.55, width: 1.5, peak: 0.45 },
+                               { gen: "spell", letters: "KLARA", step: 0.24, fade: 0.14, hold: 0.55, persist: 0.12, peak: 0.95 }] },
       ap_start:            { stars: { rate: 1.4 } },
-      wifi_connecting:     { stars: { rate: 1.2, wind: { axis: "x" } } },
-      provisioning_wait:   { stars: { rate: 0.9, tide: true } },
+      wifi_connecting:     { stars: { rate: 1.2, wind: { axis: "x", period: 5.5, width: 0.20, floor: 0.30 } } },
+      provisioning_wait:   { stars: { rate: 0.9, tide: { period: 26, lo: 0.22 } } },
       provisioning_client: { stars: {}, mods: [{ gen: "meteor", every: 1.8, dur: 1.1, tail: 4.6, peak: 0.75 }] },
-      ntp_syncing:         { stars: { rate: 1.35, cohere: 0.55, wind: { axis: "y" } } },
+      ntp_syncing:         { stars: { rate: 1.35, cohere: 0.55, wind: { axis: "y", period: 3.2, width: 0.16, floor: 0.35 } } },
       running:             { stars: {}, text: true },
       minute_change:       { stars: {}, text: true, mods: [{ gen: "tick", dur: 0.12, peak: 0.45 }] },
       ota_download:        { stars: { gate: "demo" } },
@@ -660,7 +741,9 @@ const THEME_DESC = {
     name: "旧母题 v1",
     transition: { dur: 300 },
     states: {
-      boot:                { stars: { rate: 1.8, peakMul: 0.4 } },
+      boot:                { stars: { rate: 1.8, peakMul: 0.3 }, mods: [
+                               { gen: "band", axis: "diag", period: 0.55, width: 1.5, peak: 0.45 },
+                               { gen: "spell", letters: "KLARA", step: 0.24, fade: 0.14, hold: 0.55, persist: 0.12, peak: 0.95 }] },
       ap_start:            { stars: {} },
       wifi_connecting:     { stars: {}, mods: [{ gen: "band", axis: "x", period: 5.5, width: 2.2, peak: 0.40 }] },
       provisioning_wait:   { stars: {}, mods: [{ gen: "ignite", step: 0.7, fade: 2.4, max: 30, peak: 0.30 }] },
@@ -944,21 +1027,336 @@ const SHOWS = {
 };
 let SHOW = SHOWS.stars;
 
-function applyTheme(name, keepState) {
-  const desc = THEME_DESC[name] || THEME_DESC.stars;
-  P.theme = name;
-  SHOW = SHOWS[name] || SHOWS.stars;
-  document.querySelectorAll("[data-theme]").forEach(b => b.classList.toggle("on", b.dataset.theme === name));
-  lastState = null;                       // 强制清过渡状态，避免切主题时闪一下
-  showing = false;
-  ui.show.classList.remove("on");
-  ui.show.textContent = "播放完整状态序列";
-  if (keepState) ui.state.value = keepState;
-  t = 0;
-}
-
 function initCanon() {
   ui.state.innerHTML = CANON.map(([v, l]) => `<option value="${v}">${l}</option>`).join("");
+}
+
+
+/* ===================== 10b. 主题管理 + 状态编辑器 =====================
+   两套内置主题在 THEME_DESC；自定义主题存 localStorage。
+   状态编辑器按描述符结构生成控件：星场覆盖（乘性）+ 叠加层生成器。
+*/
+const GEN_SPEC = {
+  band:    { label: "光带 / 扫带", params: [["axis", "轴向", "sel", ["x", "y", "diag"]], ["period", "周期 s", "num", 0.2, 20, 0.05], ["width", "宽度", "num", 0.2, 8, 0.1], ["peak", "峰值 α", "num", 0, 1.2, 0.01]] },
+  ripple:  { label: "径向涟漪",   params: [["origin", "原点 r,c", "pair"], ["dur", "时长 s", "num", 0.1, 5, 0.1], ["peak", "峰值 α", "num", 0, 1.2, 0.01], ["width", "宽度", "num", 0.05, 1, 0.01]] },
+  chase:   { label: "四角点跑",   params: [["step", "步进 s", "num", 0.1, 3, 0.05], ["peak", "峰值 α", "num", 0, 1.2, 0.01]] },
+  ignite:  { label: "星渐现",     params: [["step", "间隔 s", "num", 0.1, 3, 0.05], ["fade", "淡入 s", "num", 0.1, 6, 0.1], ["max", "上限 颗", "num", 1, 110, 1], ["peak", "峰值 α", "num", 0, 1.2, 0.01], ["hold", "停留 s", "num", 0.2, 10, 0.1]] },
+  fillRow: { label: "行主序填充", params: [["progress", "进度", "prog"], ["peak", "峰值 α", "num", 0, 1.2, 0.01]] },
+  pulse:   { label: "单格脉冲",   params: [["cell", "格子 r,c", "pair"], ["period", "周期 s", "num", 0.2, 20, 0.1], ["peak", "峰值 α", "num", 0, 1.2, 0.01], ["base", "基底 α", "num", 0, 1, 0.01], ["sharp", "锐度", "num", 1, 8, 0.5]] },
+  meteor:  { label: "流星",       params: [["every", "间隔 s", "num", 0.3, 20, 0.1], ["dur", "时长 s", "num", 0.1, 5, 0.05], ["tail", "尾长 格", "num", 0.5, 10, 0.1], ["peak", "峰值 α", "num", 0, 1.2, 0.01]] },
+  fadeAll: { label: "全屏衰减",   params: [["dur", "时长 s", "num", 0.1, 10, 0.1]] },
+  tick:    { label: "换词滴答",   params: [["dur", "时长 s", "num", 0.05, 1, 0.01], ["peak", "峰值 α", "num", 0, 1.2, 0.01]] },
+  spell:   { label: "拼写（名字星座）", params: [["letters", "字母", "text"], ["step", "间隔 s", "num", 0.05, 2, 0.01], ["fade", "淡入 s", "num", 0.05, 2, 0.01], ["hold", "停留 s", "num", 0.1, 5, 0.05], ["persist", "余晖 α", "num", 0, 0.6, 0.01], ["peak", "峰值 α", "num", 0, 1.2, 0.01]] },
+};
+
+// 星场可覆盖项：键 → 类型
+const STAR_KEYS = {
+  rate:     { label: "rate 快慢", type: "num", min: 0, max: 3, step: 0.05, def: 1 },
+  peakMul:  { label: "peakMul 明暗", type: "num", min: 0, max: 1.5, step: 0.05, def: 1 },
+  hue:      { label: "hue 偏暖", type: "bool" },
+  cohere:   { label: "cohere 同相", type: "num", min: 0, max: 1, step: 0.05, def: 0.5 },
+  gate:     { label: "gate 星等门槛", type: "gate" },
+  fall:     { label: "fall 星落", type: "bool" },
+  twitch:   { label: "twitch 抽搐", type: "twitch" },
+  wind:     { label: "wind 风", type: "wind" },
+  tide:     { label: "tide 潮汐", type: "tide" },
+  freezeAt: { label: "freezeAt 冻结于 s", type: "num", min: 0, max: 60, step: 0.1, def: 3 },
+};
+
+let CUSTOM = {};                                   // name → descriptor
+const LS_KEY = "wordclock.themes.v1";
+
+function descFor(name) { return CUSTOM[name] || THEME_DESC[name] || THEME_DESC.stars; }
+function themeList() {
+  const out = Object.keys(THEME_DESC).map(k => [k, THEME_DESC[k].name + "（内置）"]);
+  for (const k of Object.keys(CUSTOM)) out.push([k, CUSTOM[k].name || k]);
+  return out;
+}
+function loadCustom() {
+  try { CUSTOM = JSON.parse(localStorage.getItem(LS_KEY) || "{}") || {}; } catch { CUSTOM = {}; }
+}
+function saveCustom() {
+  try { localStorage.setItem(LS_KEY, JSON.stringify(CUSTOM)); } catch (e) { console.warn("localStorage 写入失败", e); }
+}
+
+/* ---- 控件工厂 ---- */
+function el(tag, cls, txt) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (txt != null) n.textContent = txt;
+  return n;
+}
+function numInput(value, min, max, step, onInput) {
+  const i = el("input");
+  i.type = "number"; i.value = value;
+  if (min != null) i.min = min;
+  if (max != null) i.max = max;
+  if (step != null) i.step = step;
+  i.style.width = "62px";
+  i.addEventListener("input", () => onInput(parseFloat(i.value)));
+  return i;
+}
+function kv(label, control) {
+  const row = el("div", "kv");
+  row.appendChild(el("span", null, label));
+  const right = el("span");
+  right.appendChild(control);
+  row.appendChild(right);
+  return row;
+}
+
+/* ---- 状态编辑器 ---- */
+function renderStateEditor() {
+  const box = document.getElementById("stateEditor");
+  box.innerHTML = "";
+  const st = ui.state.value;
+  const desc = descFor(P.theme);
+  const label = (CANON.find(([id]) => id === st) || [st, st])[1];
+  document.getElementById("curStateName").textContent = label;
+
+  const entry = desc.states[st] || (desc.states[st] = {});
+
+  // 星场覆盖
+  const starsBox = el("div");
+  const stars = entry.stars || (entry.stars = {});
+  for (const [key, spec] of Object.entries(STAR_KEYS)) {
+    const present = stars[key] != null;
+    if (spec.type === "bool" || spec.type === "wind" || spec.type === "tide" || spec.type === "twitch") {
+      const row = el("div", "kv");
+      const left = el("span");
+      const cb = el("input"); cb.type = "checkbox"; cb.checked = present;
+      cb.addEventListener("change", () => {
+        if (cb.checked) {
+          stars[key] = spec.type === "bool" ? true
+            : spec.type === "wind" ? { axis: "x", period: 5.5, width: 0.20, floor: 0.30 }
+            : spec.type === "tide" ? { period: 26, lo: 0.22 }
+            : { period: 4 };
+        } else delete stars[key];
+        renderStateEditor();
+      });
+      left.appendChild(cb); left.appendChild(el("span", null, " " + spec.label));
+      row.appendChild(left); row.appendChild(el("span"));
+      starsBox.appendChild(row);
+      if (present) {
+        if (spec.type === "wind") {
+          const w = stars.wind;
+          starsBox.appendChild(kv("轴",
+            (() => { const sel = el("select"); ["x", "y"].forEach(a => { const o = el("option", null, a); o.value = a; sel.appendChild(o); });
+              sel.value = w.axis || "x"; sel.addEventListener("change", () => w.axis = sel.value); return sel; })()));
+          starsBox.appendChild(kv("周期 s", numInput(w.period ?? 5.5, 0.5, 30, 0.1, v => w.period = v)));
+          starsBox.appendChild(kv("宽度", numInput(w.width ?? 0.20, 0.02, 2, 0.01, v => w.width = v)));
+          starsBox.appendChild(kv("低谷倍", numInput(w.floor ?? 0.30, 0, 1, 0.05, v => w.floor = v)));
+        } else if (spec.type === "tide") {
+          starsBox.appendChild(kv("周期 s", numInput(stars.tide.period ?? 26, 2, 240, 1, v => stars.tide.period = v)));
+          starsBox.appendChild(kv("最暗倍", numInput(stars.tide.lo ?? 0.22, 0, 1, 0.02, v => stars.tide.lo = v)));
+        } else if (spec.type === "twitch") {
+          starsBox.appendChild(kv("间隔 s", numInput(stars.twitch.period ?? 4, 0.5, 60, 0.5, v => stars.twitch.period = v)));
+        }
+      }
+      continue;
+    }
+    if (spec.type === "gate") {
+      const row = el("div", "kv");
+      const left = el("span");
+      const cb = el("input"); cb.type = "checkbox"; cb.checked = present;
+      left.appendChild(cb); left.appendChild(el("span", null, " " + spec.label));
+      const sel = el("select");
+      [["demo", "跟随演示进度"], ["0.5", "固定 50%"], ["1", "固定 100%"]].forEach(([v, l]) => {
+        const o = el("option", null, l); o.value = v; sel.appendChild(o);
+      });
+      sel.value = present ? String(stars.gate) : "demo";
+      cb.addEventListener("change", () => { if (cb.checked) stars.gate = sel.value === "demo" ? "demo" : parseFloat(sel.value); else delete stars.gate; renderStateEditor(); });
+      sel.addEventListener("change", () => { stars.gate = sel.value === "demo" ? "demo" : parseFloat(sel.value); });
+      const right = el("span"); right.appendChild(sel);
+      row.appendChild(left); row.appendChild(right);
+      starsBox.appendChild(row);
+      continue;
+    }
+    // 数值型
+    const row = el("div", "kv");
+    const left = el("span");
+    const cb = el("input"); cb.type = "checkbox"; cb.checked = present;
+    left.appendChild(cb); left.appendChild(el("span", null, " " + spec.label));
+    const inp = numInput(present ? stars[key] : spec.def, spec.min, spec.max, spec.step, v => stars[key] = v);
+    inp.disabled = !present;
+    cb.addEventListener("change", () => {
+      if (cb.checked) stars[key] = spec.def; else delete stars[key];
+      renderStateEditor();
+    });
+    const right = el("span"); right.appendChild(inp);
+    row.appendChild(left); row.appendChild(right);
+    starsBox.appendChild(row);
+  }
+  box.appendChild(el("div", "hint", "星场覆盖（乘性）"));
+  box.appendChild(starsBox);
+
+  // 叠加层
+  box.appendChild(el("div", "hint", "叠加层生成器"));
+  const mods = entry.mods || (entry.mods = []);
+  mods.forEach((g, idx) => box.appendChild(renderMod(g, idx, mods)));
+
+  // 添加生成器
+  const addRow = el("div", "kv");
+  const sel = el("select");
+  const empty = el("option", null, "＋ 添加生成器…"); empty.value = ""; sel.appendChild(empty);
+  for (const [k, spec] of Object.entries(GEN_SPEC)) {
+    const o = el("option", null, spec.label); o.value = k; sel.appendChild(o);
+  }
+  sel.addEventListener("change", () => {
+    if (!sel.value) return;
+    const k = sel.value;
+    const spec = { gen: k };
+    for (const [p, , type] of GEN_SPEC[k].params) {
+      if (type === "num") spec[p] = GDEF[k][p];
+      else if (type === "sel") spec[p] = GDEF[k][p];
+      else if (type === "pair") spec[p] = k === "ripple" ? [GEO.rows - 1, 0] : [4, 5];
+      else if (type === "text") spec[p] = GDEF[k][p];
+    }
+    mods.push(spec);
+    sel.value = "";
+    renderStateEditor();
+    syncJson();
+  });
+  addRow.appendChild(el("span", null, "叠加层"));
+  const sr = el("span"); sr.appendChild(sel); addRow.appendChild(sr);
+  box.appendChild(addRow);
+
+  // 文字层
+  const tRow = el("div", "kv");
+  const tl = el("span");
+  const tcb = el("input"); tcb.type = "checkbox"; tcb.checked = !!entry.text;
+  tcb.addEventListener("change", () => { entry.text = tcb.checked; syncJson(); });
+  tl.appendChild(tcb); tl.appendChild(el("span", null, " text 时间文字层"));
+  tRow.appendChild(tl); tRow.appendChild(el("span"));
+  box.appendChild(tRow);
+}
+
+function renderMod(g, idx, mods) {
+  const spec = GEN_SPEC[g.gen];
+  const card = el("div", "modcard");
+  const head = el("div", "modhead");
+  head.appendChild(el("b", null, spec ? spec.label : g.gen));
+  const del = el("button", "del", "✕");
+  del.title = "删除";
+  del.addEventListener("click", () => { mods.splice(idx, 1); renderStateEditor(); syncJson(); });
+  head.appendChild(del);
+  card.appendChild(head);
+  if (!spec) { card.appendChild(el("div", "hint", "未知生成器（会被解释器忽略）")); return card; }
+
+  for (const [key, label, type, a, b, c] of spec.params) {
+    if (type === "num") {
+      card.appendChild(kv(label, numInput(g[key] ?? GDEF[g.gen][key], a, b, c, v => { g[key] = v; syncJson(); })));
+    } else if (type === "sel") {
+      const sel = el("select");
+      a.forEach(v => { const o = el("option", null, v); o.value = v; sel.appendChild(o); });
+      sel.value = g[key] ?? GDEF[g.gen][key];
+      sel.addEventListener("change", () => { g[key] = sel.value; syncJson(); });
+      card.appendChild(kv(label, sel));
+    } else if (type === "pair") {
+      const cur = g[key] || (g.gen === "ripple" ? [GEO.rows - 1, 0] : [4, 5]);
+      const wrap = el("span");
+      wrap.appendChild(numInput(cur[0], 0, 9, 1, v => { g[key] = [v, g[key][1]]; syncJson(); }));
+      wrap.appendChild(el("span", null, " , "));
+      wrap.appendChild(numInput(cur[1], 0, 10, 1, v => { g[key] = [g[key][0], v]; syncJson(); }));
+      card.appendChild(kv(label, wrap));
+    } else if (type === "text") {
+      const inp = el("input"); inp.type = "text"; inp.value = g[key] ?? GDEF[g.gen][key];
+      inp.style.width = "110px";
+      inp.addEventListener("input", () => { g[key] = inp.value; syncJson(); });
+      card.appendChild(kv(label, inp));
+    } else if (type === "prog") {
+      const sel = el("select");
+      [["demo", "跟随演示进度"], ["0.5", "固定 50%"], ["1", "固定 100%"]].forEach(([v, l]) => {
+        const o = el("option", null, l); o.value = v; sel.appendChild(o);
+      });
+      sel.value = String(g.progress ?? "demo");
+      sel.addEventListener("change", () => { g.progress = sel.value === "demo" ? "demo" : parseFloat(sel.value); syncJson(); });
+      card.appendChild(kv(label, sel));
+    }
+  }
+  // 混合模式
+  const blend = el("select");
+  ["add", "max", "mul"].forEach(v => { const o = el("option", null, v); o.value = v; blend.appendChild(o); });
+  blend.value = g.blend || GDEF[g.gen].blend || "max";
+  blend.addEventListener("change", () => { g.blend = blend.value; syncJson(); });
+  card.appendChild(kv("混合", blend));
+  return card;
+}
+
+/* ---- 描述符 JSON 逃生口 ---- */
+function syncJson() {
+  const ta = document.getElementById("descJson");
+  ta.value = JSON.stringify(descFor(P.theme), null, 1);
+}
+function applyJson() {
+  const ta = document.getElementById("descJson");
+  try {
+    const d = JSON.parse(ta.value);
+    if (!d || typeof d !== "object" || !d.states) throw new Error("缺少 states");
+    if (CUSTOM[P.theme]) CUSTOM[P.theme] = d;
+    else { const nm = d.name || "自定义主题"; CUSTOM[nm] = d; P.theme = nm; }
+    saveCustom(); refreshThemeSel(); renderStateEditor(); syncJson();
+  } catch (e) {
+    alert("描述符无效：" + e.message);
+  }
+}
+
+/* ---- 主题切换 / 保存 / 上传 ---- */
+function refreshThemeSel() {
+  const sel = document.getElementById("themeSel");
+  sel.innerHTML = "";
+  for (const [k, l] of themeList()) {
+    const o = el("option", null, l); o.value = k; sel.appendChild(o);
+  }
+  sel.value = P.theme;
+  document.getElementById("themeName").value = descFor(P.theme).name || P.theme;
+}
+function switchTheme(name) {
+  P.theme = name;
+  lastState = null;
+  t = 0;
+  document.getElementById("themeName").value = descFor(name).name || name;
+  document.querySelectorAll("[data-theme]").forEach(b => b.classList.toggle("on", b.dataset.theme === name));
+  renderStateEditor();
+  syncJson();
+}
+function saveAsCustom() {
+  const name = (document.getElementById("themeName").value || "自定义主题").trim();
+  const copy = JSON.parse(JSON.stringify(descFor(P.theme)));
+  copy.name = name;
+  CUSTOM[name] = copy;
+  saveCustom();
+  P.theme = name;
+  refreshThemeSel();
+  document.querySelectorAll("[data-theme]").forEach(b => b.classList.remove("on"));
+  renderStateEditor(); syncJson();
+}
+function resetBuiltin() {
+  const name = P.theme;
+  if (CUSTOM[name]) { delete CUSTOM[name]; saveCustom(); P.theme = "stars"; }
+  refreshThemeSel();
+  switchTheme(P.theme);
+}
+function downloadTheme() {
+  const d = descFor(P.theme);
+  download((d.name || P.theme) + ".theme.json", JSON.stringify(d, null, 2), "application/json");
+}
+function uploadTheme(file) {
+  const fr = new FileReader();
+  fr.onload = () => {
+    try {
+      const d = JSON.parse(String(fr.result));
+      if (!d || !d.states) throw new Error("缺少 states");
+      if (JSON.stringify(d).length > 20000) throw new Error("描述符过大（上限 20KB）");
+      const name = (d.name || file.name.replace(/\.json$/, "")).slice(0, 40);
+      d.name = name;
+      CUSTOM[name] = d;
+      saveCustom(); P.theme = name; refreshThemeSel(); switchTheme(name);
+    } catch (e) {
+      alert("主题文件无效：" + e.message);
+    }
+  };
+  fr.readAsText(file);
 }
 
 let showIdx = 0, showT = 0, showing = false;
@@ -968,9 +1366,13 @@ ui.show.addEventListener("click", () => {
   ui.show.textContent = showing ? "停止序列" : "播放完整状态序列";
   if (showing) { ui.state.value = SHOW[0][0]; }
 });
-ui.state.addEventListener("change", () => { showing = false; ui.show.classList.remove("on"); ui.show.textContent = "播放完整状态序列"; t = 0; });
+ui.state.addEventListener("change", () => {
+  showing = false; ui.show.classList.remove("on"); ui.show.textContent = "播放完整状态序列";
+  t = 0; renderStateEditor();
+});
 document.querySelectorAll("[data-theme]").forEach(b => b.addEventListener("click", () => {
-  applyTheme(b.dataset.theme, ui.state.value);
+  SHOW = SHOWS[b.dataset.theme] || SHOWS.stars;
+  switchTheme(b.dataset.theme);
 }));
 
 let numbersOn = false;
@@ -1084,7 +1486,7 @@ document.getElementById("expPng").addEventListener("click", () => {
 /* ===================== 12. 启动 ===================== */
 function loadFromQuery() {
   const q = new URLSearchParams(location.search);
-  if (q.has("theme")) applyTheme(q.get("theme"));
+  if (q.has("theme")) { SHOW = SHOWS[q.get("theme")] || SHOWS.stars; switchTheme(q.get("theme")); }
   if (q.has("state")) { ui.state.value = q.get("state"); showing = false; }
   if (q.has("t")) t = parseFloat(q.get("t")) || 0;
   if (q.has("pause")) {                      // pause=1（默认）= 冻结画面；pause=0 = 继续播放
@@ -1124,12 +1526,30 @@ if (document.fonts && document.fonts.load) {
 }
 window.addEventListener("resize", () => layout());
 loadFromHash();
+loadCustom();                          // 先读本地自定义主题
 initCanon();                           // 状态列表固定（固件契约）
-applyTheme(P.theme || "stars");
+if (!THEME_DESC[P.theme] && !CUSTOM[P.theme]) P.theme = "stars";
+switchTheme(P.theme);
+refreshThemeSel();
 loadFromQuery();
 syncControls();
 rebuildStars();
 bindParams();
+document.querySelectorAll("[data-theme]").forEach(b => b.classList.toggle("on", b.dataset.theme === P.theme));
+document.getElementById("themeSel").addEventListener("change", (e) => {
+  SHOW = SHOWS[e.target.value] || SHOWS.stars;
+  switchTheme(e.target.value);
+});
+document.getElementById("themeSave").addEventListener("click", saveAsCustom);
+document.getElementById("themeReset").addEventListener("click", resetBuiltin);
+document.getElementById("themeDownload").addEventListener("click", downloadTheme);
+document.getElementById("themeUpload").addEventListener("change", (e) => {
+  if (e.target.files && e.target.files[0]) uploadTheme(e.target.files[0]);
+});
+document.getElementById("descApply").addEventListener("click", applyJson);
+document.getElementById("descReload").addEventListener("click", syncJson);
+renderStateEditor();
+syncJson();
 requestAnimationFrame(loop);
 </script>
 </body>
