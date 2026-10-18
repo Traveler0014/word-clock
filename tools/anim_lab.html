@@ -434,6 +434,13 @@ const smooth = (x) => { const t = clamp01(x); return t * t * (3 - 2 * t); };
 const gauss = (d, w) => Math.exp(-(d * d) / (w * w));
 // 蛇形走线的**逆映射**：奇数行的物理列是反的。
 // 少了这一步，"按行列距离"的逻辑（风的方向、标签选格、拼写连线）会整行镜像。
+// cells = [[r,c], ...] 写死的点位。给了就用它（"要一眼读出"）；
+// 不给才回落到算法选点（"要藏一个词，让人自己发现"）。这是两种设计意图。
+function cellsOf(g) {
+  if (Array.isArray(g.cells) && g.cells.length) return g.cells.map(([r, c]) => xyToIndex(r, c));
+  return null;
+}
+
 const ledRC = (led) => {
   const row = Math.floor(led / GEO.cols);
   const raw = led % GEO.cols;
@@ -529,9 +536,9 @@ const GDEF = {
   fadeAll: { dur: 2.4, blend: "mul" },
   dotPulse: { dots: [0], period: 3.0, peak: 0.55, base: 0.06, sharp: 3, blend: "max" },
   tick:    { dur: 0.12, peak: 0.40, blend: "max" },
-  spell:   { letters: "KLARA", step: 0.34, fade: 0.45, hold: 0.0, fadeOut: 0.0,
+  spell:   { letters: "KLARA", cells: null, step: 0.34, fade: 0.45, hold: 0.0, fadeOut: 0.0,
              persist: 1.0, spread: 3, delay: 0.0, peak: 0.95, blend: "max" },
-  label:   { text: "SYNC", mode: "progress", progress: "demo", demo: 6, settle: 0.75,
+  label:   { text: "SYNC", cells: null, mode: "progress", progress: "demo", demo: 6, settle: 0.75,
              dots: true, period: 5, sharp: 3, spread: 2, peak: 0.6, blend: "max" },
 };
 const gp = (g, k) => (g[k] != null ? g[k] : GDEF[g.gen][k]);
@@ -636,7 +643,7 @@ const GEN = {
   spell(g, t) {
     const letters = (g.letters || "").toUpperCase().replace(/[^A-Z]/g, "");
     if (!letters) return;
-    const cells = resolveSpelling(letters, gp(g, "spread"));
+    const cells = cellsOf(g) || resolveSpelling(letters, gp(g, "spread"));
     const step = gp(g, "step"), fade = gp(g, "fade"), hold = gp(g, "hold"),
           fadeOut = gp(g, "fadeOut"), persist = gp(g, "persist"),
           delay = gp(g, "delay"), peak = gp(g, "peak");
@@ -661,7 +668,7 @@ const GEN = {
   label(g, t) {
     const text = (g.text || "").toUpperCase().replace(/[^A-Z]/g, "");
     if (!text) return;
-    const cells = resolveLabel(text);
+    const cells = cellsOf(g) || resolveLabel(text);
     const peak = gp(g, "peak"), mode = gp(g, "mode");
 
     if (mode === "blink") {
@@ -875,8 +882,10 @@ const THEME_DESC = {
       // 开屏：右下 K 起点的对角扫（最早亮的就是名字的首字母）→ KLARA 逐字常亮
       boot:                { stars: { rate: 1.8, peakMul: 0.30 }, mods: [
                                { gen: "band", axis: "diagr", period: 0.60, width: 1.4, peak: 0.50 },
-                               { gen: "spell", letters: "KLARA", delay: 0.45, step: 0.34,
-                                 fade: 0.45, persist: 1.0, spread: 6, peak: 0.95 }] },
+                               // 写死点位：从右下 K 沿对角线到左上，依次 K→L→A→R→A
+                               { gen: "spell", letters: "KLARA", delay: 0.45, step: 0.34, fade: 0.45,
+                                 persist: 1.0, peak: 0.95,
+                                 cells: [[9,10],[7,6],[4,1],[1,5],[0,5]] }] },
       ap_start:            { stars: {}, mods: [{ gen: "chase", step: 0.9, peak: 0.35 }] },
       // 尝试连接：v1 的横向扫带（实测最能表达"在往前走"）
       wifi_connecting:     { stars: {}, mods: [{ gen: "band", axis: "x", period: 4.5, width: 2.0, peak: 0.42 }] },
@@ -889,15 +898,17 @@ const THEME_DESC = {
       // 校时：标签 SYNC 按进度累计点亮（语义：在同步，而不是"加载中"）
       // 校时 / OTA：同一套"进度"动效（标签累计点亮 + 四角点当刻度），只有标签不同
       ntp_syncing:         { stars: { rate: 1.1 }, mods: [
+                               // 标签写死成紧凑的一簇（跨度 2×5），一眼能读出 SYNC
                                { gen: "label", text: "SYNC", mode: "progress", progress: "demo", demo: 6,
-                                 dots: true, peak: 0.55 }] },
+                                 dots: true, peak: 0.55, cells: [[0,6],[2,5],[2,3],[1,1]] }] },
       running:             { stars: {}, text: true },
       minute_change:       { stars: {}, text: true, mods: [{ gen: "tick", dur: 0.14, peak: 0.45 }] },
       ota_download:        { stars: { rate: 1.1 }, mods: [
                                { gen: "label", text: "OTA", mode: "progress", progress: "demo", demo: 14,
-                                 dots: true, peak: 0.60 }] },
+                                 dots: true, peak: 0.60, cells: [[5,0],[4,3],[4,1]] }] },
       ota_apply:           { stars: {}, mods: [
-                               { gen: "label", text: "OTA", mode: "progress", progress: 1, peak: 0.60 },
+                               { gen: "label", text: "OTA", mode: "progress", progress: 1, peak: 0.60,
+                                 cells: [[5,0],[4,3],[4,1]] },
                                { gen: "band", axis: "diagr", period: 2.4, width: 1.6, peak: 0.22 }] },
       // 错误语义用"还能不能报时"来表达（比任何标签都直观）：
       //   网络断了 → 时间照常显示但明显降级（暗 50%、偏暖）+ 一颗角点缓慢搏动
@@ -905,9 +916,11 @@ const THEME_DESC = {
       // 网络错误：时间**照常可读**（断网不该让钟变瞎），只是降级为 50% 亮度 + 偏暖，
       // 再用 NET 慢速点名（低亮度、长间隔）告诉你"是网络这块"。
       error_network:       { stars: { rate: 0.12, peakMul: 0.26, hue: 1 }, text: true, textLevel: 0.50, textTint: 3,
-                             mods: [{ gen: "label", text: "NET", mode: "blink", period: 6, sharp: 4, peak: 0.42, tint: 3 }] },
+                             mods: [{ gen: "label", text: "NET", mode: "blink", period: 6, sharp: 4, peak: 0.42, tint: 3,
+                                      cells: [[2,3],[3,6],[2,4]] }] },
       error_time:          { stars: { rate: 0.10, peakMul: 0.22, hue: 1 }, mods: [
-                               { gen: "label", text: "TIME", mode: "blink", period: 6, peak: 0.55, sharp: 3, tint: 3 }] },
+                               { gen: "label", text: "TIME", mode: "blink", period: 6, peak: 0.55, sharp: 3, tint: 3,
+                                 cells: [[1,6],[2,7],[0,8],[1,7]] }] },
       factory_reset:       { stars: { fall: true } },
       deep_night:          { stars: { peakMul: 0.75 } },
       apply_config:        { stars: { rate: 0.6 }, mods: [
@@ -1229,12 +1242,12 @@ const GEN_SPEC = {
   tick:    { label: "换词滴答",   params: [["dur", "时长 s", "num", 0.05, 1, 0.01], ["peak", "峰值 α", "num", 0, 1.2, 0.01]] },
   dotPulse:{ label: "四角点搏动", params: [["dots", "点 0-3", "text"], ["period", "周期 s", "num", 0.3, 20, 0.1],
              ["peak", "峰值 α", "num", 0, 1.2, 0.01], ["base", "基底 α", "num", 0, 1, 0.01], ["sharp", "锐度", "num", 1, 8, 0.5]] },
-  label:   { label: "标签（点名/进度）", params: [["text", "文字", "text"],
+  label:   { label: "标签（点名/进度）", params: [["text", "文字", "text"], ["cells", "写死点位 r,c", "cells"],
              ["mode", "模式", "sel", ["blink", "progress"]], ["progress", "进度", "prog"],
              ["demo", "演示 s", "num", 1, 60, 0.5], ["period", "闪烁周期 s", "num", 0.5, 30, 0.5],
              ["sharp", "锐度", "num", 1, 8, 0.5], ["settle", "已亮保持倍", "num", 0, 1, 0.05],
              ["spread", "同字母间距", "num", 0, 12, 1], ["peak", "峰值 α", "num", 0, 1.2, 0.01]] },
-  spell:   { label: "拼写（名字星座）", params: [["letters", "字母", "text"], ["step", "间隔 s", "num", 0.1, 3, 0.02], ["fade", "渐亮 s", "num", 0.05, 3, 0.05], ["hold", "停留 s", "num", 0.05, 5, 0.05], ["fadeOut", "渐隐 s（0=常亮）", "num", 0, 3, 0.05], ["persist", "常亮倍", "num", 0, 1, 0.05], ["spread", "同字母最小间距", "num", 0, 12, 1], ["delay", "延迟 s", "num", 0, 5, 0.05], ["peak", "峰值 α", "num", 0, 1.2, 0.01]] },
+  spell:   { label: "拼写（名字星座）", params: [["letters", "字母", "text"], ["cells", "写死点位 r,c", "cells"], ["step", "间隔 s", "num", 0.1, 3, 0.02], ["fade", "渐亮 s", "num", 0.05, 3, 0.05], ["hold", "停留 s", "num", 0.05, 5, 0.05], ["fadeOut", "渐隐 s（0=常亮）", "num", 0, 3, 0.05], ["persist", "常亮倍", "num", 0, 1, 0.05], ["spread", "同字母最小间距", "num", 0, 12, 1], ["delay", "延迟 s", "num", 0, 5, 0.05], ["peak", "峰值 α", "num", 0, 1.2, 0.01]] },
 };
 
 // 星场可覆盖项：键 → 类型
@@ -1451,6 +1464,20 @@ function renderMod(g, idx, mods) {
       const inp = el("input"); inp.type = "text"; inp.value = g[key] ?? GDEF[g.gen][key];
       inp.style.width = "110px";
       inp.addEventListener("input", () => { g[key] = inp.value; syncJson(); });
+      card.appendChild(kv(label, inp));
+    } else if (type === "cells") {
+      const inp = el("input");
+      inp.type = "text";
+      inp.value = Array.isArray(g.cells) ? g.cells.map(([r, c]) => r + "," + c).join(" ") : "";
+      inp.placeholder = "留空 = 算法选点";
+      inp.style.width = "150px";
+      inp.addEventListener("input", () => {
+        const txt = inp.value.trim();
+        if (!txt) delete g.cells;
+        else g.cells = txt.split(/\s+/).map(p => p.split(",").map(Number))
+          .filter(a => a.length === 2 && a.every(Number.isFinite));
+        syncJson();
+      });
       card.appendChild(kv(label, inp));
     } else if (type === "prog") {
       const sel = el("select");
