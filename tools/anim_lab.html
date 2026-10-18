@@ -1789,6 +1789,31 @@ document.getElementById("expPng").addEventListener("click", () => {
   a.click();
 });
 
+/* ---- 运行时星空的快捷 A/B：直接改当前主题 running 态的描述符 ---- */
+const QUIET = { "0": [0, 0.30], "1": [0.15, 0.35], "2": [1, 1] };
+function markQuiet() {
+  const desc = descFor(P.theme);
+  const st = desc.states && desc.states.running;
+  const rate = st && st.stars && st.stars.rate != null ? st.stars.rate : 1;
+  const key = rate === 0 ? "0" : (rate <= 0.2 ? "1" : "2");
+  document.querySelectorAll("[data-quiet]").forEach(b => b.classList.toggle("on", b.dataset.quiet === key));
+}
+function setQuiet(mode) {
+  const pair = QUIET[mode];
+  if (!pair) return;
+  const [rate, peakMul] = pair;
+  const desc = descFor(P.theme);
+  for (const stName of ["running", "minute_change"]) {
+    const st = desc.states && desc.states[stName];
+    if (!st) continue;
+    st.stars = Object.assign({}, st.stars || {}, { rate, peakMul });
+  }
+  markQuiet();
+  if (typeof renderStateEditor === "function") renderStateEditor();
+  if (typeof syncJson === "function") syncJson();
+}
+document.querySelectorAll("[data-quiet]").forEach(b => b.addEventListener("click", () => setQuiet(b.dataset.quiet)));
+
 /* ===================== 12. 启动 ===================== */
 function loadFromQuery() {
   const q = new URLSearchParams(location.search);
