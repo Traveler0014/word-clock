@@ -26,7 +26,7 @@ use esp_idf_svc::hal::{
         config::TransmitConfig, PinState, Pulse, RmtChannel, TxRmtDriver, VariableLengthSignal,
     },
 };
-use wordclock_core::{Frame, CORNER_LEDS, LETTER_LEDS, TOTAL_LEDS};
+use wordclock_core::TOTAL_LEDS;
 
 /// WS2812B 时序（与 datasheet 标称值一致）
 const T0H: Duration = Duration::from_nanos(400);
@@ -102,21 +102,6 @@ impl<'d> LedDriver<'d> {
         Ok(())
     }
 
-    /// 按字钟帧整帧刷新（运行期可配置亮度与色温）
-    pub fn show_with(&mut self, frame: &Frame, color: (u8, u8, u8), div: u8) -> Result<()> {
-        let lit = scaled(color, div);
-        let off = (0u8, 0u8, 0u8);
-        let mut rgb = [off; TOTAL_LEDS];
-        for (px, &on) in rgb.iter_mut().zip(frame.lit.iter()) {
-            if on {
-                *px = lit;
-            }
-        }
-        self.encode(&rgb)?;
-        self.tx.start_blocking(&self.sig)?;
-        Ok(())
-    }
-
     /// 直接写一帧原始 RGB（调试/标尺用，不做亮度缩放）
     pub fn show_rgb(&mut self, rgb: &[(u8, u8, u8); TOTAL_LEDS]) -> Result<()> {
         self.encode(rgb)?;
@@ -131,16 +116,10 @@ impl<'d> LedDriver<'d> {
         Ok(())
     }
 
-    /// 角点转圈：`n` 在第 n 个角点亮（配网等待动画）
-    pub fn spinner(&mut self, n: usize) -> Result<()> {
-        let mut px = [(0u8, 0u8, 0u8); TOTAL_LEDS];
-        px[LETTER_LEDS + (n % CORNER_LEDS)] = (0, 8, 24);
-        self.show_rgb(&mut px)?;
-        Ok(())
-    }
-
     /// 上电自检：全链 R→G→B→灭（每步 400ms）。
+    /// 常规启动已改用开屏动效（对角扫同样全板点亮），此函数只在 --features diag 用。
     /// 全屏都变 = 数据链电气连通；只有部分变 = 链断在那一颗之后。
+    #[allow(dead_code)] // 仅 --features diag 使用
     pub fn self_test(&mut self) -> Result<()> {
         for color in [
             (32u8, 0u8, 0u8),
@@ -156,7 +135,3 @@ impl<'d> LedDriver<'d> {
     }
 }
 
-fn scaled(c: (u8, u8, u8), div: u8) -> (u8, u8, u8) {
-    let div = div.max(1);
-    (c.0 / div, c.1 / div, c.2 / div)
-}

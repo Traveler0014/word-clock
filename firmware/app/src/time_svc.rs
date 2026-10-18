@@ -1,8 +1,7 @@
-use std::time::Duration;
 
 use anyhow::Result;
 use esp_idf_svc::sntp::{EspSntp, SntpConf, SyncStatus};
-use log::{info, warn};
+use log::info;
 
 /// 启动 SNTP（国内 NTP 服务器优先）并设置时区 UTC+8（中国无夏令时）
 pub fn start_sntp() -> Result<EspSntp<'static>> {
@@ -21,23 +20,9 @@ pub fn start_sntp() -> Result<EspSntp<'static>> {
 
 /// 等待 NTP 同步完成。
 /// 每 5s 汇报一次状态：WiFi 通但 NTP 不通（DNS/UDP 123 被拦）时避免静默卡死无法排查。
-pub fn wait_synced(sntp: &EspSntp) {
-    info!("waiting for NTP sync ...");
-    let mut last_log = 0u64;
-    loop {
-        match sntp.get_sync_status() {
-            SyncStatus::Completed => break,
-            s => {
-                let now = unsafe { esp_idf_svc::sys::time(core::ptr::null_mut()) } as u64;
-                if now - last_log >= 5 {
-                    last_log = now;
-                    warn!("ntp not synced yet, status = {s:?}");
-                }
-            }
-        }
-        std::thread::sleep(Duration::from_millis(250));
-    }
-    info!("NTP synced");
+/// 非阻塞版本：调用方自己循环，这样等待期间可以播动画
+pub fn is_synced(sntp: &EspSntp) -> bool {
+    matches!(sntp.get_sync_status(), SyncStatus::Completed)
 }
 
 /// 运行期设置时区（POSIX 串，如 "CST-8"）。管理页改时区走这里。

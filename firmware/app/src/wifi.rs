@@ -224,31 +224,9 @@ pub fn try_connect(wifi: &mut Wifi, creds: &Creds) -> Result<String> {
 }
 
 /// 正常启动路径：有限次尝试；全部失败则返回 Err，由调用方决定是否进配网模式。
-pub fn connect_with_retries(
-    wifi: &mut Wifi,
-    creds: &Creds,
-    attempts: usize,
-) -> Result<String> {
-    let mut last_err = None;
-    for n in 1..=attempts {
-        info!(
-            "wifi: 尝试连接 \"{}\" ({n}/{attempts})",
-            creds.ssid
-        );
-        match try_connect(wifi, creds) {
-            Ok(ip) => {
-                info!("wifi up, ip = {ip}");
-                return Ok(ip);
-            }
-            Err(e) => {
-                warn!("wifi: 第 {n} 次连接失败: {e:#}");
-                last_err = Some(e);
-                let _ = wifi.disconnect();
-                std::thread::sleep(Duration::from_secs(5));
-            }
-        }
-    }
-    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("连接失败")))
+/// 单次连接尝试（重试与动效由调用方编排，这样重试间隙可以播动画）
+pub fn connect_once(wifi: &mut Wifi, creds: &Creds) -> Result<String> {
+    try_connect(wifi, creds)
 }
 
 /// 时钟运行期间的保活检查（非阻塞，由显示循环周期调用）：

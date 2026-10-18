@@ -419,7 +419,12 @@ fn set_state(shared: &Arc<Mutex<Shared>>, s: &str) {
 // ────────────────────────── 配网模式（AP） ──────────────────────────
 
 /// 配网模式主流程（永不返回：成功写入并 `esp_restart()`，失败则继续等待重试）
-pub fn run_setup(wifi: &mut Wifi, nvs: &EspDefaultNvsPartition, leds: &mut LedDriver) -> ! {
+pub fn run_setup(
+    wifi: &mut Wifi,
+    nvs: &EspDefaultNvsPartition,
+    leds: &mut LedDriver,
+    anim: &mut crate::anim_svc::AnimSvc,
+) -> ! {
     let shared = Arc::new(Mutex::new(Shared {
         mode: Mode::Setup,
         state: "starting".into(),
@@ -458,7 +463,7 @@ pub fn run_setup(wifi: &mut Wifi, nvs: &EspDefaultNvsPartition, leds: &mut LedDr
                 continue;
             }
         }
-        serve_setup(wifi, nvs, leds, &shared);
+        serve_setup(wifi, nvs, leds, anim, &shared);
     }
 }
 
@@ -466,6 +471,7 @@ fn serve_setup(
     wifi: &mut Wifi,
     nvs: &EspDefaultNvsPartition,
     leds: &mut LedDriver,
+    anim: &mut crate::anim_svc::AnimSvc,
     shared: &Arc<Mutex<Shared>>,
 ) {
     let mut want_scan = true;
@@ -559,10 +565,21 @@ fn serve_setup(
             }
         }
 
-        // 3) 角点转圈
-        let _ = leds.spinner(dots);
+        // 3) 等待用户：按 setup 状态播对应动效
+        //    idle → WAIT 点名；scanning → WIFI 常亮 + 横向慢扫；connecting → WIFI + 快扫
+        let st = {
+            let g = shared.lock().unwrap();
+            match g.state.as_str() {
+                "scanning" => wordclock_core::anim::State::WifiScanning,
+                "connecting" | "ok" => wordclock_core::anim::State::WifiConnecting,
+                _ => wordclock_core::anim::State::ProvisioningWait,
+            }
+        };
+        anim.set_state(st);
+        let _ = anim.tick(leds, None, (255, 246, 232));
         dots = (dots + 1) % 4;
-        std::thread::sleep(Duration::from_millis(400));
+        let _ = dots;
+        std::thread::sleep(Duration::from_millis(40));
     }
 }
 

@@ -18,6 +18,8 @@
 
 #![cfg_attr(not(test), no_std)]
 
+pub mod anim;
+
 pub const COLS: usize = 11;
 pub const ROWS: usize = 10;
 pub const LETTER_LEDS: usize = COLS * ROWS; // 110

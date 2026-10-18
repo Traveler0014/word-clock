@@ -464,6 +464,29 @@ python3 tools/anim_lab.py            # http://<本机IP>:8901/
 - 「导出 golden 帧 CSV」是给固件单测用的：网页算出的 `level` 必须和 Rust 实现逐帧一致。
 - 「播放完整状态序列」30 秒过一遍所有状态，用来判断它们是否像一个家族。
 
+## 固件实现（已上板）
+
+| 层 | 文件 | 内容 |
+|---|---|---|
+| 纯逻辑 | `wordclock-core/src/anim/mod.rs` | 状态枚举、星表（固定种子）、生成器、交叉淡入、α→8bit |
+| 数值基准 | `wordclock-core/src/anim/lut.rs` | `SIN` / `GAMMA` 两张表（`tools/gen_luts.py` 生成） |
+| 服务 | `firmware/app/src/anim_svc.rs` | 25fps 节流、状态切换淡入、`run_for()` 阻塞段推进 |
+| 接线 | `main.rs` / `web.rs` | boot / 连接 / 校时 / 配网 / 走时 各循环里调 `tick()` |
+
+关键决定：
+
+- **不开独立线程**。`LedDriver` 是 main 独占的，开线程要引入锁竞争；算一帧只有几十
+  微秒，直接在各循环里 `tick()` 更简单（内部 40ms 节流）。
+- **定点数 + LUT**。core 是 no_std，没有 `powf`/`sinf`；用表代替之后，宿主测试与
+  固件运行的数值是**逐位一致**的，将来做 conformance 只需对比表与舍入规则。
+- **状态由固件决定**。`State` 枚举在 core 里；主题只描述"怎么表现"。JSON 描述符
+  的动态加载（用户上传主题）仍未实现——目前是"一份编译进固件的描述符"。
+- **蛇形逆映射**在 `anim::rc_of_led()` 里，所有按行列算距离的逻辑都必须走它
+  （踩过：漏了这一步 `OTA` 会解析成 `HIA`）。
+
+宿主机验证：`cargo test -p wordclock-core`（17 项，含"点位拼词正确""单轴单调"
+"运行态文字最亮且星空 ≤ 码值 20""网络错误是降级显示不是熄灭"）。
+
 ## 落地计划
 
 1. `wordclock-core/src/anim.rs`：纯函数 `frame_at(t_ms, state) -> [Level; 114]`，

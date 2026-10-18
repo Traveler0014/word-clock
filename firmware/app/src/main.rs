@@ -10,6 +10,7 @@
 //!   抓到全量日志（量产前移除）。
 //! - Rust `log` 输出只进主控制台（UART0）；sdkconfig 见 app/sdkconfig.defaults。
 
+mod anim_svc;
 mod creds;
 mod leddrv;
 mod settings;
@@ -61,12 +62,26 @@ fn main() -> Result<()> {
     // LED 初始化 + 上电自检（RGB 全扫一遍，验证灯链与供电后再进网络流程）
     #[allow(deprecated)] // legacy rmt api，同 leddrv.rs 注释
     let mut leds = leddrv::LedDriver::new(peripherals.rmt.channel0, peripherals.pins.gpio4)?;
+
+    // 动效服务：所有灯效都从这里出帧（状态见 wordclock_core::anim::State）
+    // diag 固件在下面 diverge（只跑静态标尺），所以这里允许未使用
+    #[cfg_attr(feature = "diag", allow(unused_mut, unused_variables))]
+    let mut anim = anim_svc::AnimSvc::new(20261018);
+    #[cfg_attr(feature = "diag", allow(unused_variables))]
+    let boot_color = (255u8, 246u8, 232u8); // 开屏固定正白（设置还没读出来）
+
+    #[cfg(feature = "diag")]
     leds.self_test()?;
 
     // 调试固件（--features diag）：不连 WiFi，只显示静态标尺，用于验证
     // 灯链映射 / 信号完整性是否修好。
     #[cfg(feature = "diag")]
     diag_pattern(&mut leds);
+
+    // 开屏：右下 K 起点的对角自检扫 550ms + KLARA 名字星座约 3s
+    anim.set_state(wordclock_core::anim::State::Boot);
+    info!("boot: 开屏动效（自检扫 + KLARA）");
+    anim.run_for(&mut leds, None, boot_color, Duration::from_millis(3600))?;
 
     // USB 重枚举后主机有 ~6s 空窗：停 10s 保证串口监听接上后再打 WiFi 日志
     info!("boot: waiting 10s for console attach...");
@@ -102,16 +117,33 @@ fn main() -> Result<()> {
 
     // 有凭据：有限次重试（~2 分钟）；失败则进配网模式，而不是无限重试
     let active_creds = match stored {
-        Some(c) => match wifi::connect_with_retries(&mut wifi, &c, 8) {
-            Ok(ip) => {
-                info!("wifi ready, ip = {ip}");
-                Some((c, ip))
+        Some(c) => {
+            // 连接中：WIFI 常亮 + 快速对角扫（动效与固件状态一一对应）
+            anim.set_state(wordclock_core::anim::State::WifiConnecting);
+            let mut got = None;
+            for n in 1..=8u32 {
+                info!("wifi: 尝试连接 \"{}\" ({n}/8)", c.ssid);
+                match wifi::connect_once(&mut wifi, &c) {
+                    Ok(ip) => {
+                        info!("wifi ready, ip = {ip}");
+                        got = Some(ip);
+                        break;
+                    }
+                    Err(e) => {
+                        warn!("wifi: 第 {n} 次连接失败: {e:#}");
+                        let _ = wifi.disconnect();
+                        anim.run_for(&mut leds, None, boot_color, Duration::from_secs(5))?;
+                    }
+                }
             }
-            Err(e) => {
-                warn!("wifi: 连不上已保存的网络（{e:#}），进入配网模式");
-                None
+            match got {
+                Some(ip) => Some((c, ip)),
+                None => {
+                    warn!("wifi: 连不上已保存的网络，进入配网模式");
+                    None
+                }
             }
-        },
+        }
         None => {
             info!("creds: 无凭据，进入配网模式");
             None
@@ -124,7 +156,7 @@ fn main() -> Result<()> {
         // 配网模式永不返回：成功后 esp_restart()，失败则继续等待
         None => {
             creds::clear_boot_streak(&nvs);
-            web::run_setup(&mut wifi, &nvs, &mut leds)
+            web::run_setup(&mut wifi, &nvs, &mut leds, &mut anim)
         }
     };
 
@@ -138,7 +170,14 @@ fn main() -> Result<()> {
             }
         }
     };
-    time_svc::wait_synced(&sntp);
+    // 校时中：SYNC 逐字点亮 + 四角点 25% 刻度
+    anim.set_state(wordclock_core::anim::State::NtpSyncing);
+    info!("waiting for NTP sync ...");
+    while !time_svc::is_synced(&sntp) {
+        anim.tick(&mut leds, None, boot_color)?;
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    info!("NTP synced");
 
     // 已到健康状态（WiFi + NTP 都通了）→ 清零未正常启动计数
     creds::clear_boot_streak(&nvs);
@@ -153,14 +192,24 @@ fn main() -> Result<()> {
         shared.lock().unwrap().rssi = rssi;
     }
 
-    let mut cfg = settings::load(&nvs);
-    time_svc::set_tz(&cfg.tz);
+    let cfg0 = settings::load(&nvs);
+    time_svc::set_tz(&cfg0.tz);
     info!(
         "run: 亮度 {} / 色温 {} / 时区 {}",
-        cfg.brightness, cfg.color, cfg.tz
+        cfg0.brightness, cfg0.color, cfg0.tz
     );
 
     info!("entering display loop");
+    // 动效配色：设置里的色温，按亮度档位预先缩放一次
+    let div = cfg0.brightness_div().max(1);
+    let c = cfg0.color_rgb();
+    let mut anim_color = (c.0 / div, c.1 / div, c.2 / div);
+    let mut clock_frame = wordclock_core::time_to_frame(
+        time_svc::local_hm().0,
+        time_svc::local_hm().1,
+    );
+    let mut minute_changed_at: Option<std::time::Instant> = None;
+    let mut wifi_lost = false;
     let mut last_minute = u8::MAX;
     let mut last_wifi_check = std::time::Instant::now();
     loop {
@@ -172,7 +221,10 @@ fn main() -> Result<()> {
                 error!("settings: 落盘失败: {e:#}");
             }
             time_svc::set_tz(&next.tz);
-            cfg = next;
+            // 亮度/色温变了 → 重算动效配色（下一次 tick 生效）
+            let d = next.brightness_div().max(1);
+            let nc = next.color_rgb();
+            anim_color = (nc.0 / d, nc.1 / d, nc.2 / d);
             shared.lock().unwrap().settings_dirty = false;
             last_minute = u8::MAX; // 强制重绘（亮度/色温可能变了）
         }
@@ -202,21 +254,43 @@ fn main() -> Result<()> {
         // 4) WiFi 掉线自愈：每 30s 检查一次（掉线不影响走时，只影响 NTP 校准）
         if last_wifi_check.elapsed() >= Duration::from_secs(30) {
             last_wifi_check = std::time::Instant::now();
-            let _ = wifi::ensure_connected(&mut wifi, &active_creds);
+            let ok = wifi::ensure_connected(&mut wifi, &active_creds);
+            // 断网：时间照常显示但降级（暗 50% + 偏暖），恢复后回到正常态
+            if ok != wifi_lost && minute_changed_at.is_none() {
+                wifi_lost = ok != true;
+                anim.set_state(if wifi_lost {
+                    wordclock_core::anim::State::ErrorNetwork
+                } else {
+                    wordclock_core::anim::State::Running
+                });
+            }
             // 顺手把信号强度刷给管理页
             if let Ok(rssi) = wifi.wifi().get_rssi() {
                 shared.lock().unwrap().rssi = rssi;
             }
         }
 
-        // 5) 走时
+        // 5) 走时 + 动效
+        //    换词时切到 MinuteChange（四角点滴答），1.2s 后回到 Running
         let (hour, minute) = time_svc::local_hm();
         if minute != last_minute {
             last_minute = minute;
-            let frame = wordclock_core::time_to_frame(hour, minute);
-            info!("{hour:02}:{minute:02} -> {} leds", frame.count());
-            leds.show_with(&frame, cfg.color_rgb(), cfg.brightness_div())?;
+            clock_frame = wordclock_core::time_to_frame(hour, minute);
+            info!("{hour:02}:{minute:02} -> {} leds", clock_frame.count());
+            minute_changed_at = Some(std::time::Instant::now());
+            anim.set_state(wordclock_core::anim::State::MinuteChange);
         }
-        std::thread::sleep(Duration::from_millis(500));
+        if let Some(at) = minute_changed_at {
+            if at.elapsed() >= Duration::from_millis(1200) {
+                minute_changed_at = None;
+                anim.set_state(if wifi_lost {
+                    wordclock_core::anim::State::ErrorNetwork
+                } else {
+                    wordclock_core::anim::State::Running
+                });
+            }
+        }
+        anim.tick(&mut leds, Some(&clock_frame), anim_color)?;
+        std::thread::sleep(Duration::from_millis(10));
     }
 }
