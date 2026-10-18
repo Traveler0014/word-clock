@@ -1,0 +1,5 @@
+_wordclock-led_unfilled.kicad_pcb
+*.kicad_prl
+*-bak
+fp-info-cache
+.history/
