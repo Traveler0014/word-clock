@@ -15,7 +15,8 @@ use wordclock_core::Frame;
 
 use crate::leddrv::LedDriver;
 
-const FRAME_MS: u64 = 40; // 25fps
+// 实测面板能稳定在 8~10fps；再高会因持续整帧写入与电源波动出现闪烁
+const FRAME_MS: u64 = 120; // ~8fps
 const DEFAULT_FADE_MS: u32 = 700;
 
 pub struct AnimSvc {

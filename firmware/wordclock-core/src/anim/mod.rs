@@ -146,6 +146,7 @@ impl Anim {
         self.stars_base(state, t_ms, &mut l);
         self.mods(state, t_ms, &mut l);
         self.text(state, clock, &mut l);
+        l.cap(SUM_BUDGET);
         l
     }
 
@@ -159,7 +160,7 @@ impl Anim {
         }
         // (rate‰, peak_mul‰, tide, fall)
         let (rate, peak_mul, tide, fall) = match state {
-            State::Boot => (1800, 300, None, false),
+            State::Boot => (1800, 200, None, false),
             State::ApStart => (1000, 300, None, false),
             State::WifiConnecting => (1000, 300, None, false),
             State::WifiScanning => (1000, 300, None, false),
@@ -217,18 +218,18 @@ impl Anim {
         match state {
             State::Boot => {
                 // ① 从右下 K 起点的对角快扫（功能性自检）② KLARA 逐字常亮
-                band(l, Axis::DiagR, t_ms, 600, 125, 500);
+                band(l, Axis::DiagR, t_ms, 900, 1250, 420);
                 spell(l, BOOT_NAME, t_ms, 450, 340, 450, 950);
             }
             State::ApStart => label_blink(l, LABEL_AP, t_ms, 3200, 550, 0),
             State::WifiConnecting => {
                 label_steady(l, LABEL_WIFI, 500);
-                band(l, Axis::DiagR, t_ms, 750, 110, 450);
+                band(l, Axis::DiagR, t_ms, 750, 1100, 450);
             }
             State::WifiScanning => {
                 // 横向慢扫：方向 = 标签的阅读方向（左→右），速度编码"耗时"
                 label_steady(l, LABEL_WIFI, 500);
-                band(l, Axis::X, t_ms, 2400, 140, 420);
+                band(l, Axis::X, t_ms, 2400, 1400, 420);
             }
             State::ProvisioningWait => label_blink(l, LABEL_WAIT, t_ms, 5500, 500, 0),
             State::ProvisioningClient => ripple(l, t_ms, (9, 10), 1000, 320),
@@ -237,7 +238,7 @@ impl Anim {
             State::OtaDownload => label_progress(l, LABEL_OTA, t_ms, 14_000, 600, true),
             State::OtaApply => {
                 label_steady(l, LABEL_OTA, 550);
-                band(l, Axis::DiagR, t_ms, 2400, 160, 280);
+                band(l, Axis::DiagR, t_ms, 2400, 1600, 280);
             }
             State::ErrorNetwork => label_blink(l, LABEL_NET, t_ms, 6000, 420, 3),
             State::ErrorTime => label_blink(l, LABEL_TIME, t_ms, 6000, 550, 3),
@@ -273,9 +274,25 @@ pub struct Lights {
     pub tint: [u8; TOTAL_LEDS],
 }
 
+/// 整帧"码值之和"上限。经验换算：电流 ≈ 0.235 mA × 码值和，
+/// 所以 9000 ≈ 2.1A。超过这道闸就整帧等比压暗——WS2812 在电压跌落时会
+/// 复位（表现为整板闪白 + 掉帧），必须提前掐住。
+pub const SUM_BUDGET: u32 = 9_000;
+
 impl Lights {
     pub fn new() -> Self {
         Self { a: [0; TOTAL_LEDS], tint: [0; TOTAL_LEDS] }
+    }
+
+    /// 功率闸：整帧码值和超过预算就等比压暗（保持画面比例，不改变构图）
+    pub fn cap(&mut self, budget: u32) {
+        let sum: u32 = self.a.iter().map(|&a| to8(a) as u32).sum();
+        if sum > budget {
+            let k = (budget * 1000) / sum.max(1);
+            for a in self.a.iter_mut() {
+                *a = ((*a as u32 * k) / 1000) as u16;
+            }
+        }
     }
 
     /// 感知 alpha → 8bit RGB（gamma + 色档）。`base` 是设备当前色温。
@@ -327,7 +344,9 @@ fn add(a: &mut [u16; TOTAL_LEDS], tint: &mut [u8; TOTAL_LEDS], i: usize, v: u16,
     }
 }
 
-/// 光带：axis 决定往哪个方向扫，`period_ms` 一轮，`width_x100` 是高斯宽度
+/// 光带：axis 决定往哪个方向扫，`period_ms` 一轮。
+/// `width_milli` 是高斯宽度，单位"毫格"（1250 = 1.25 格）。
+/// 单位必须和 `d` 一致——这里 d 也是毫格。
 fn band(l: &mut Lights, axis: Axis, t_ms: u32, period_ms: u32, width_x100: u16, peak: u16) {
     let width = width_x100 as i32;
     // 投影坐标：x → 列；y → 行；diag → 右上到左下；diagr → 右下到左上
@@ -340,11 +359,14 @@ fn band(l: &mut Lights, axis: Axis, t_ms: u32, period_ms: u32, width_x100: u16, 
         }),
     };
     let phase = (t_ms as u64 * 1000 / period_ms as u64 % 1000) as i32;
-    let w2 = 2 * width;
-    let pos = phase * (span + w2) / 1000 - width;
+    // 注意单位：投影坐标是"格"，这里统一换算成"毫格"再和宽度比较。
+    // （踩过：把 1.25 格当成 125 格 → 整块板同时点亮 → 电源跌落 → 掉帧闪白）
+    let span_m = span * 1000;
+    let w2_m = 2 * width; // width 本身就是毫格
+    let pos_m = phase * (span_m + w2_m) / 1000 - width;
     for r in 0..ROWS {
         for c in 0..COLS {
-            let d = proj(r, c) - pos;
+            let d = proj(r, c) * 1000 - pos_m;
             let g = gauss_x1000(d, width);
             let v = (peak as u32 * g as u32 / 1000) as u16;
             if v > 0 {
