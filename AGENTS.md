@@ -28,7 +28,7 @@ cd firmware && source env.sh                 # 每次新终端必须先执行
 cargo test -p wordclock-core --target x86_64-unknown-linux-gnu
 
 # 编译（**不需要任何 WiFi 环境变量**：凭据只存在 NVS，由配网页面写入）
-cargo build -p word-clock
+cargo build -p word-clock --release
 
 # 配网（NVS 无凭据或连不上时自动进入）
 #   手机连热点 WordClock-XXXXXX（开放）→ 浏览器打开日志里打印的 AP IP（本机实测 192.168.71.1）
@@ -38,7 +38,7 @@ cargo build -p word-clock
 
 # 调试固件：不连 WiFi，只显示静态标尺（每行左红/右绿/中暗蓝 + 四角白）
 # 用于验证灯链映射与信号完整性，不依赖网络、不依赖时间
-cargo build -p word-clock --features diag
+cargo build -p word-clock --release --features diag
 
 # 烧录（USB-JTAG 口，按 VID:PID 找口，ttyACM 编号会漂移）
 #   303a:1001 = USB-JTAG（烧录/调试）  1a86:55d3 = UART（日志，CH343/CH9102F）
@@ -84,7 +84,7 @@ python3 tools/debug_web.py                            # 浏览器点选实测亮
 ## 验证顺序（改完代码后）
 
 1. `cargo test -p wordclock-core --target x86_64-unknown-linux-gnu`（宿主机）
-2. `cargo build -p word-clock`（目标机，确认零警告）
+2. `cargo build -p word-clock --release`（目标机，确认零警告）
 3. 逻辑正确性可在宿主机验证的，优先宿主机验证再上板
 
 ## 当前状态与下一步
