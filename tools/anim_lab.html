@@ -337,7 +337,7 @@ const P = {
   // 预览辅助：进度类生成器 demo 走完一遍的秒数（真机由 OTA/NTP 提供真实进度）
   demoSec: 14,
   // 当前主题
-  theme: "stars",
+  theme: "merged",
 };
 
 /* ===================== 4. 确定性随机 + 星表 ===================== */
@@ -517,9 +517,12 @@ const GDEF = {
   pulse:   { period: 3.5, peak: 0.35, base: 0, sharp: 3, blend: "max" },
   meteor:  { every: 3.5, dur: 1.1, tail: 4.6, peak: 0.75, blend: "max" },
   fadeAll: { dur: 2.4, blend: "mul" },
+  dotPulse: { dots: [0], period: 3.0, peak: 0.55, base: 0.06, sharp: 3, blend: "max" },
   tick:    { dur: 0.12, peak: 0.40, blend: "max" },
-  spell:   { letters: "KLARA", step: 0.42, fade: 0.55, hold: 0.75, fadeOut: 0.65,
-             spread: 3, delay: 0.0, peak: 0.95, blend: "max" },
+  spell:   { letters: "KLARA", step: 0.34, fade: 0.45, hold: 0.0, fadeOut: 0.0,
+             persist: 1.0, spread: 3, delay: 0.0, peak: 0.95, blend: "max" },
+  label:   { text: "SYNC", mode: "progress", progress: "demo", demo: 6, settle: 0.75,
+             dots: true, period: 5, sharp: 3, spread: 2, peak: 0.6, blend: "max" },
 };
 const gp = (g, k) => (g[k] != null ? g[k] : GDEF[g.gen][k]);
 
@@ -528,11 +531,15 @@ const GEN = {
   // 加性光带：axis = x（竖扫）/ y（横扫）/ diag（对角，用于开屏自检）
   band(g, t) {
     const period = gp(g, "period"), width = gp(g, "width"), peak = gp(g, "peak"), axis = gp(g, "axis");
-    const span = axis === "y" ? GEO.rows : (axis === "diag" ? GEO.cols + GEO.rows : GEO.cols);
+    const span = axis === "y" ? GEO.rows
+               : (axis === "diag" || axis === "diagr") ? GEO.cols + GEO.rows : GEO.cols;
     const pos = ((t / period) % 1) * (span + 2 * width) - width;
     for (let r = 0; r < GEO.rows; r++) {
       for (let c = 0; c < GEO.cols; c++) {
-        const u = axis === "y" ? r : (axis === "diag" ? c + r * (GEO.cols / GEO.rows) : c);
+        const u = axis === "y" ? r
+                : axis === "diag" ? c + r * (GEO.cols / GEO.rows)
+                : axis === "diagr" ? (GEO.cols - 1 - c) + (GEO.rows - 1 - r) * (GEO.cols / GEO.rows)
+                : c;
         put(xyToIndex(r, c), peak * gauss(u - pos, width), "add", g.tint);
       }
     }
@@ -598,6 +605,12 @@ const GEN = {
       }
     }
   },
+  // 四角点搏动：物理上远离字母阵 → 用来做"系统级"提示，不干扰读时间
+  dotPulse(g, t) {
+    const beat = Math.pow(0.5 - 0.5 * Math.cos(2 * Math.PI * t / gp(g, "period")), gp(g, "sharp"));
+    const a = gp(g, "base") + gp(g, "peak") * beat;
+    for (const k of (g.dots || [0])) put(LETTER_LEDS + k, a, "max", g.tint);
+  },
   fadeAll(g, t) {
     const k = 1 - smooth(t / gp(g, "dur"));
     for (let i = 0; i < TOTAL; i++) SIM_ALPHA[i] *= k;
@@ -607,28 +620,62 @@ const GEN = {
     if (u > 1) return;
     for (let k = 0; k < CORNER_LEDS; k++) put(LETTER_LEDS + k, gp(g, "peak") * (1 - smooth(u)), "max", g.tint);
   },
-  // 拼写：在固定字母阵里找出这些字母的格子，逐个"渐亮→停留→渐隐"
-  // —— 每次只亮一两个字母，读起来是星座一颗颗被认出来，而不是写字。
+  // 拼写：在固定字母阵里找出这些字母的格子，逐个渐亮并**常亮保留**
+  // —— 拼完就是一小撮"特殊的星"，不是写字、也不熄灭。
+  // （如果确实想让它淡出，把 persist 设成 0~0.5 并给 fadeOut > 0。）
   spell(g, t) {
     const letters = (g.letters || "").toUpperCase().replace(/[^A-Z]/g, "");
     if (!letters) return;
     const cells = resolveSpelling(letters, gp(g, "spread"));
     const step = gp(g, "step"), fade = gp(g, "fade"), hold = gp(g, "hold"),
-          fadeOut = gp(g, "fadeOut"), delay = gp(g, "delay"), peak = gp(g, "peak");
-    const span = Math.max(1, Math.round(cells.length / Math.max(1, letters.length)));
-    // 同一个字母的多个格子作为"一组"，同时亮
-    for (let k = 0; k < letters.length; k++) {
+          fadeOut = gp(g, "fadeOut"), persist = gp(g, "persist"),
+          delay = gp(g, "delay"), peak = gp(g, "peak");
+    for (let k = 0; k < letters.length && k < cells.length; k++) {
       const local = t - delay - k * step;
       if (local < 0) continue;
       let env;
       if (local < fade) env = smooth(local / fade);
       else if (local < fade + hold) env = 1;
-      else if (local < fade + hold + fadeOut) env = 1 - smooth((local - fade - hold) / fadeOut);
-      else env = 0;
+      else if (fadeOut > 0 && local < fade + hold + fadeOut) env = 1 - smooth((local - fade - hold) / fadeOut);
+      else env = fadeOut > 0 ? 0 : 1;
       if (env <= 0) continue;
-      for (let j = 0; j < span; j++) {
-        const i = cells[k * span + j];
-        if (i != null) put(i, peak * env, "max", g.tint != null ? g.tint : 0);
+      // 已拼出的字母稳定停在 persist（默认 1.0 = 常亮）
+      const settled = k < letters.length - 1 || fadeOut === 0 ? persist : 1;
+      put(cells[k], peak * env * (env === 1 ? settled : 1), "max", g.tint != null ? g.tint : 0);
+    }
+  },
+
+  // 标签：用字母拼出"是哪个子系统"，两种包络共用同一套选格逻辑
+  //   mode="blink"    整词同亮同灭（错误点名：NET / TIME）
+  //   mode="progress" 按进度累计点亮，最后一颗轻微呼吸（等待/进度：SYNC / OTA）
+  label(g, t) {
+    const text = (g.text || "").toUpperCase().replace(/[^A-Z]/g, "");
+    if (!text) return;
+    const cells = resolveSpelling(text, gp(g, "spread"));
+    const peak = gp(g, "peak"), mode = gp(g, "mode");
+
+    if (mode === "blink") {
+      const per = gp(g, "period"), sharp = gp(g, "sharp");
+      // 一个周期内两次脉冲 → "提醒"而不是"呼吸"
+      const ph = ((t / per) * 2) % 1;
+      const env = Math.pow(Math.max(0, Math.sin(Math.PI * ph)), sharp);
+      if (env > 0.002) for (const i of cells) put(i, peak * env, "max", g.tint);
+      return;
+    }
+    const demo = gp(g, "demo");
+    const prog = g.progress === "demo" ? Math.min(1, (t % demo) / (demo * 0.86))
+               : (g.progress != null ? g.progress : 1);
+    const shown = Math.max(1, Math.ceil(prog * cells.length));
+    // 四角点当百分比刻度（4 颗 = 25% 一档），让"进度"不依赖标签是否可读
+    if (gp(g, "dots")) {
+      const quarters = Math.floor(prog * 4.001);
+      for (let d = 0; d < quarters; d++) put(LETTER_LEDS + d, gp(g, "peak") * 0.5, "max", g.tint);
+    }
+    for (let k = 0; k < cells.length; k++) {
+      if (k < shown - 1) put(cells[k], peak * gp(g, "settle"), "max", g.tint);
+      else if (k === shown - 1) {
+        const breath = 0.55 + 0.45 * (0.5 - 0.5 * Math.cos(2 * Math.PI * t / 1.6));
+        put(cells[k], peak * breath, "max", g.tint);
       }
     }
   },
@@ -706,10 +753,13 @@ function runState(desc, state, t, clockLit) {
     if (fn) fn(g, t);
   }
   if (entry.text && clockLit && !P.hideText) {
-    for (let i = 0; i < LETTER_LEDS; i++) if (clockLit[i]) { SIM_ALPHA[i] = 1.0; SIM_TINT[i] = 0; }
+    // textLevel < 1 = "降级显示"：时钟还能报时，但明显不正常
+    const lv = entry.textLevel != null ? entry.textLevel : 1.0;
+    const tn = entry.textTint != null ? entry.textTint : 0;
+    for (let i = 0; i < LETTER_LEDS; i++) if (clockLit[i]) { SIM_ALPHA[i] = lv; SIM_TINT[i] = tn; }
     for (let k = 0; k < CORNER_LEDS; k++) {
-      SIM_ALPHA[LETTER_LEDS + k] = clockLit[LETTER_LEDS + k] ? 0.85 : 0;
-      SIM_TINT[LETTER_LEDS + k] = 0;
+      SIM_ALPHA[LETTER_LEDS + k] = clockLit[LETTER_LEDS + k] ? 0.85 * lv : 0;
+      SIM_TINT[LETTER_LEDS + k] = tn;
     }
   }
 }
@@ -771,6 +821,49 @@ const THEME_DESC = {
       factory_reset:       { stars: { fall: true } },
       deep_night:          { stars: { peakMul: 0.7 } },
       apply_config:        { stars: { rate: 0.5 } },
+    },
+  },
+  merged: {
+    name: "融合主题 v3",
+    transition: { dur: 700 },
+    states: {
+      // 开屏：右下 K 起点的对角扫（最早亮的就是名字的首字母）→ KLARA 逐字常亮
+      boot:                { stars: { rate: 1.8, peakMul: 0.30 }, mods: [
+                               { gen: "band", axis: "diagr", period: 0.60, width: 1.4, peak: 0.50 },
+                               { gen: "spell", letters: "KLARA", delay: 0.45, step: 0.34,
+                                 fade: 0.45, persist: 1.0, spread: 3, peak: 0.95 }] },
+      ap_start:            { stars: {}, mods: [{ gen: "chase", step: 0.9, peak: 0.35 }] },
+      // 尝试连接：v1 的横向扫带（实测最能表达"在往前走"）
+      wifi_connecting:     { stars: {}, mods: [{ gen: "band", axis: "x", period: 4.5, width: 2.0, peak: 0.42 }] },
+      // 等你操作：潮汐（人的节奏）+ 四角点 chase（"轮到你了"）
+      provisioning_wait:   { stars: { rate: 0.9, tide: { period: 26, lo: 0.25 } },
+                             mods: [{ gen: "chase", step: 0.9, peak: 0.30 }] },
+      // 有人连上了：v1 的涟漪（事件确认，实测优秀）
+      provisioning_client: { stars: {}, mods: [{ gen: "ripple", origin: [9, 0], dur: 1.0, peak: 0.32 }] },
+      // 校时：标签 SYNC 按进度累计点亮（语义：在同步，而不是"加载中"）
+      // 校时 / OTA：同一套"进度"动效（标签累计点亮 + 四角点当刻度），只有标签不同
+      ntp_syncing:         { stars: { rate: 1.1 }, mods: [
+                               { gen: "label", text: "SYNC", mode: "progress", progress: "demo", demo: 6,
+                                 dots: true, peak: 0.55 }] },
+      running:             { stars: {}, text: true },
+      minute_change:       { stars: {}, text: true, mods: [{ gen: "tick", dur: 0.14, peak: 0.45 }] },
+      ota_download:        { stars: { rate: 1.1 }, mods: [
+                               { gen: "label", text: "OTA", mode: "progress", progress: "demo", demo: 14,
+                                 dots: true, peak: 0.60 }] },
+      ota_apply:           { stars: {}, mods: [
+                               { gen: "label", text: "OTA", mode: "progress", progress: 1, peak: 0.60 },
+                               { gen: "band", axis: "diagr", period: 2.4, width: 1.6, peak: 0.22 }] },
+      // 错误语义用"还能不能报时"来表达（比任何标签都直观）：
+      //   网络断了 → 时间照常显示但明显降级（暗 50%、偏暖）+ 一颗角点缓慢搏动
+      //   时间未知 → 根本不给时间，只有 TIME 闪烁 = "我不知道现在几点"
+      error_network:       { stars: { rate: 0.12, peakMul: 0.26, hue: 1 }, text: true, textLevel: 0.50, textTint: 3,
+                             mods: [{ gen: "dotPulse", dots: [0], period: 3.4, peak: 0.55, base: 0.05, tint: 3 }] },
+      error_time:          { stars: { rate: 0.10, peakMul: 0.22, hue: 1 }, mods: [
+                               { gen: "label", text: "TIME", mode: "blink", period: 6, peak: 0.55, sharp: 3, tint: 3 }] },
+      factory_reset:       { stars: { fall: true } },
+      deep_night:          { stars: { peakMul: 0.75 } },
+      apply_config:        { stars: { rate: 0.6 }, mods: [
+                               { gen: "band", axis: "diagr", period: 0.5, width: 1.6, peak: 0.45 }] },
     },
   },
   motifs: {
@@ -1054,6 +1147,9 @@ ui.scrub.addEventListener("input", (e) => { t = parseFloat(e.target.value); });
 
 /* ---- 主题切换：状态列表是固定的（CANON），切主题只换描述符 ---- */
 const SHOWS = {
+  merged: [["boot", 4], ["ap_start", 3], ["provisioning_wait", 8], ["provisioning_client", 3],
+           ["wifi_connecting", 8], ["ntp_syncing", 6], ["running", 8], ["minute_change", 3],
+           ["ota_download", 8], ["error_network", 6], ["error_time", 6], ["factory_reset", 4], ["running", 5]],
   stars:  [["deep_night", 8], ["wifi_connecting", 9], ["provisioning_wait", 10],
            ["provisioning_client", 3], ["ntp_syncing", 5], ["running", 8],
            ["minute_change", 3], ["ota_download", 6], ["error_network", 6],
@@ -1062,7 +1158,7 @@ const SHOWS = {
            ["ntp_syncing", 5], ["running", 8], ["error_network", 5],
            ["factory_reset", 3], ["running", 6]],
 };
-let SHOW = SHOWS.stars;
+let SHOW = SHOWS.merged;
 
 function initCanon() {
   ui.state.innerHTML = CANON.map(([v, l]) => `<option value="${v}">${l}</option>`).join("");
@@ -1083,7 +1179,14 @@ const GEN_SPEC = {
   meteor:  { label: "流星",       params: [["every", "间隔 s", "num", 0.3, 20, 0.1], ["dur", "时长 s", "num", 0.1, 5, 0.05], ["tail", "尾长 格", "num", 0.5, 10, 0.1], ["peak", "峰值 α", "num", 0, 1.2, 0.01]] },
   fadeAll: { label: "全屏衰减",   params: [["dur", "时长 s", "num", 0.1, 10, 0.1]] },
   tick:    { label: "换词滴答",   params: [["dur", "时长 s", "num", 0.05, 1, 0.01], ["peak", "峰值 α", "num", 0, 1.2, 0.01]] },
-  spell:   { label: "拼写（名字星座）", params: [["letters", "字母", "text"], ["step", "间隔 s", "num", 0.1, 3, 0.02], ["fade", "渐亮 s", "num", 0.05, 3, 0.05], ["hold", "停留 s", "num", 0.05, 5, 0.05], ["fadeOut", "渐隐 s", "num", 0.05, 3, 0.05], ["spread", "同字母最小间距", "num", 0, 12, 1], ["delay", "延迟 s", "num", 0, 5, 0.05], ["peak", "峰值 α", "num", 0, 1.2, 0.01]] },
+  dotPulse:{ label: "四角点搏动", params: [["dots", "点 0-3", "text"], ["period", "周期 s", "num", 0.3, 20, 0.1],
+             ["peak", "峰值 α", "num", 0, 1.2, 0.01], ["base", "基底 α", "num", 0, 1, 0.01], ["sharp", "锐度", "num", 1, 8, 0.5]] },
+  label:   { label: "标签（点名/进度）", params: [["text", "文字", "text"],
+             ["mode", "模式", "sel", ["blink", "progress"]], ["progress", "进度", "prog"],
+             ["demo", "演示 s", "num", 1, 60, 0.5], ["period", "闪烁周期 s", "num", 0.5, 30, 0.5],
+             ["sharp", "锐度", "num", 1, 8, 0.5], ["settle", "已亮保持倍", "num", 0, 1, 0.05],
+             ["spread", "同字母间距", "num", 0, 12, 1], ["peak", "峰值 α", "num", 0, 1.2, 0.01]] },
+  spell:   { label: "拼写（名字星座）", params: [["letters", "字母", "text"], ["step", "间隔 s", "num", 0.1, 3, 0.02], ["fade", "渐亮 s", "num", 0.05, 3, 0.05], ["hold", "停留 s", "num", 0.05, 5, 0.05], ["fadeOut", "渐隐 s（0=常亮）", "num", 0, 3, 0.05], ["persist", "常亮倍", "num", 0, 1, 0.05], ["spread", "同字母最小间距", "num", 0, 12, 1], ["delay", "延迟 s", "num", 0, 5, 0.05], ["peak", "峰值 α", "num", 0, 1.2, 0.01]] },
 };
 
 // 星场可覆盖项：键 → 类型
@@ -1103,7 +1206,7 @@ const STAR_KEYS = {
 let CUSTOM = {};                                   // name → descriptor
 const LS_KEY = "wordclock.themes.v1";
 
-function descFor(name) { return CUSTOM[name] || THEME_DESC[name] || THEME_DESC.stars; }
+function descFor(name) { return CUSTOM[name] || THEME_DESC[name] || THEME_DESC.merged; }
 function themeList() {
   const out = Object.keys(THEME_DESC).map(k => [k, THEME_DESC[k].name + "（内置）"]);
   for (const k of Object.keys(CUSTOM)) out.push([k, CUSTOM[k].name || k]);
@@ -1368,7 +1471,7 @@ function saveAsCustom() {
 }
 function resetBuiltin() {
   const name = P.theme;
-  if (CUSTOM[name]) { delete CUSTOM[name]; saveCustom(); P.theme = "stars"; }
+  if (CUSTOM[name]) { delete CUSTOM[name]; saveCustom(); P.theme = "merged"; }
   refreshThemeSel();
   switchTheme(P.theme);
 }
@@ -1559,7 +1662,7 @@ window.addEventListener("resize", () => layout());
 loadFromHash();
 loadCustom();                          // 先读本地自定义主题
 initCanon();                           // 状态列表固定（固件契约）
-if (!THEME_DESC[P.theme] && !CUSTOM[P.theme]) P.theme = "stars";
+if (!THEME_DESC[P.theme] && !CUSTOM[P.theme]) P.theme = "merged";
 switchTheme(P.theme);
 refreshThemeSel();
 loadFromQuery();
