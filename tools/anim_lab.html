@@ -978,16 +978,17 @@ const THEME_DESC = {
       ap_start:            { stars: {}, mods: [
                                { gen: "label", text: "AP", mode: "blink", period: 3.2, sharp: 3, peak: 0.55,
                                  cells: [[0,7],[0,9]] }] },
-      // 连接中：点名 WIFI（慢速同步闪），比扫带更直接说明"卡在哪一步"
+      // 连接中：WIFI 常亮（身份）+ **快速对角扫**（握手是短促的事，和开屏同一个手势方向）
       wifi_connecting:     { stars: {}, mods: [
-                               { gen: "label", text: "WIFI", mode: "blink", period: 4.5, sharp: 3, peak: 0.55,
-                                 cells: [[2,1],[0,3],[2,6],[2,7]] }] },
-      // 扫描信道：WIFI 常亮（身份，不抢注意）+ 纵向快扫（注意通道）
-      // —— 读作"WiFi 这一层正在逐条信道找"，比单独一个 SCAN 词清楚得多
+                               { gen: "label", text: "WIFI", mode: "steady", peak: 0.50,
+                                 cells: [[2,1],[0,3],[2,6],[2,7]] },
+                               { gen: "band", axis: "diagr", period: 0.75, width: 1.1, peak: 0.45 }] },
+      // 扫描信道（耗时操作）：WIFI 常亮 + **沿标签阅读方向的横向慢扫**（左→右）
+      //   —— 扫的方向 = 读的方向，速度慢 = 耗时；与连接态的快扫形成对比
       wifi_scanning:       { stars: {}, mods: [
                                { gen: "label", text: "WIFI", mode: "steady", peak: 0.50,
                                  cells: [[2,1],[0,3],[2,6],[2,7]] },
-                               { gen: "band", axis: "y", period: 0.55, width: 0.75, peak: 0.46 }] },
+                               { gen: "band", axis: "x", period: 2.4, width: 1.4, peak: 0.42 }] },
       // 等你操作：潮汐（人的节奏）+ WAIT 点名（慢，不催）
       provisioning_wait:   { stars: { rate: 0.9, tide: { period: 26, lo: 0.25 } },
                              mods: [{ gen: "label", text: "WAIT", mode: "blink", period: 5.5, sharp: 3, peak: 0.5,
