@@ -9,14 +9,19 @@
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
+use log::info;
 use wordclock_core::anim::{Anim, Lights, State};
 use wordclock_core::TOTAL_LEDS;
 use wordclock_core::Frame;
 
 use crate::leddrv::LedDriver;
 
-// 实测面板能稳定在 8~10fps；再高会因持续整帧写入与电源波动出现闪烁
-const FRAME_MS: u64 = 120; // ~8fps
+// 实测（ESP32-C5 + legacy RMT，mem_block_num=4）：
+//   单帧 show_rgb 阻塞 20ms（系统静默）~ 175ms（WiFi 活跃）
+//   所以真实可达帧率是 5~10fps，不是 25fps。
+// 取 8fps：既留出余量给 WiFi/HTTP，又保证动效每一步至少跨 1~2 帧。
+// 所有动效节奏都已按"一帧 ≈ 125ms"重新定标（见 wordclock-core::anim）。
+const FRAME_MS: u64 = 125; // ~8fps
 const DEFAULT_FADE_MS: u32 = 700;
 
 pub struct AnimSvc {
@@ -27,8 +32,16 @@ pub struct AnimSvc {
     prev: Lights,
     /// 最近一帧（下次切状态时成为 prev）
     last_lights: Lights,
+    /// 最近一次真正写进灯板的 RGB（用于跳过重复帧）
+    last_rgb: Option<[(u8, u8, u8); TOTAL_LEDS]>,
     last_tick: Instant,
     fade_ms: u32,
+    // 统计：实测帧率与单帧写入耗时（判断瓶颈在算帧还是 RMT 写入）
+    stat_frames: u32,
+    stat_show_us: u64,
+    stat_writes: u32,
+    stat_skips: u32,
+    stat_since: Instant,
 }
 
 impl AnimSvc {
@@ -40,9 +53,15 @@ impl AnimSvc {
             entered: now,
             prev: Lights::new(),
             last_lights: Lights::new(),
+            last_rgb: None,
             // 让第一次 tick 立刻绘帧
             last_tick: now - Duration::from_millis(FRAME_MS),
             fade_ms: DEFAULT_FADE_MS,
+            stat_frames: 0,
+            stat_show_us: 0,
+            stat_writes: 0,
+            stat_skips: 0,
+            stat_since: now,
         }
     }
 
@@ -88,7 +107,24 @@ impl AnimSvc {
 
         let mut rgb = [(0u8, 0u8, 0u8); TOTAL_LEDS];
         lights.to_rgb(base, &mut rgb);
+
+        // 内容没变就不重发帧：静态画面（运行态的静止星空 + 时间文字）可以做到
+        // 完全零写入，既省电也避免无谓的 RMT 占用
+        if self.last_rgb.is_some() && self.last_rgb.unwrap() == rgb {
+            self.stat_frames += 1;
+            self.stat_skips += 1;
+            self.maybe_log();
+            return Ok(());
+        }
+
+        let t0 = Instant::now();
         leds.show_rgb(&rgb)?;
+        let us = t0.elapsed().as_micros() as u64;
+        self.last_rgb = Some(rgb);
+        self.stat_frames += 1;
+        self.stat_writes += 1;
+        self.stat_show_us += us;
+        self.maybe_log();
         Ok(())
     }
 
@@ -110,6 +146,31 @@ impl AnimSvc {
 }
 
 /// 3u²-2u³，u ∈ 0..=1000 → 0..=1000
+impl AnimSvc {
+    /// 每 5s 打一行实测统计：帧率 + 单帧写入耗时
+    fn maybe_log(&mut self) {
+        if self.stat_since.elapsed() < Duration::from_secs(5) {
+            return;
+        }
+        let el = self.stat_since.elapsed().as_micros().max(1) as u64;
+        let fps = self.stat_frames as u64 * 1_000_000 / el;
+        let avg = if self.stat_frames > 0 {
+            self.stat_show_us / self.stat_frames.max(1) as u64
+        } else {
+            0
+        };
+        info!(
+            "anim: 状态={:?} tick={}fps 写/跳={}/{} 写入均={}us",
+            self.state, fps, self.stat_writes, self.stat_skips, avg
+        );
+        self.stat_frames = 0;
+        self.stat_show_us = 0;
+        self.stat_writes = 0;
+        self.stat_skips = 0;
+        self.stat_since = Instant::now();
+    }
+}
+
 fn smoothstep(u: u16) -> u16 {
     let x = u as u64;
     let v = (3 * x * x * 1000 - 2 * x * x * x) / 1_000_000;

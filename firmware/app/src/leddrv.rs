@@ -40,6 +40,9 @@ pub struct LedDriver<'d> {
     tx: TxRmtDriver<'d>,
     /// 复用的位流缓冲：114 灯 × 24 bit + 锁存
     sig: VariableLengthSignal,
+    /// 诊断：上一帧 encode / RMT 写入各耗时多少微秒
+    pub last_encode_us: u64,
+    pub last_tx_us: u64,
     bit0: (Pulse, Pulse),
     bit1: (Pulse, Pulse),
     latch: (Pulse, Pulse),
@@ -76,6 +79,8 @@ impl<'d> LedDriver<'d> {
             tx,
             // 114×24×2 个脉冲 + 锁存
             sig: VariableLengthSignal::with_capacity(TOTAL_LEDS * 24 * 2 + 2),
+            last_encode_us: 0,
+            last_tx_us: 0,
             bit0,
             bit1,
             latch,
@@ -104,8 +109,12 @@ impl<'d> LedDriver<'d> {
 
     /// 直接写一帧原始 RGB（调试/标尺用，不做亮度缩放）
     pub fn show_rgb(&mut self, rgb: &[(u8, u8, u8); TOTAL_LEDS]) -> Result<()> {
+        let t0 = std::time::Instant::now();
         self.encode(rgb)?;
+        let t1 = std::time::Instant::now();
         self.tx.start_blocking(&self.sig)?;
+        self.last_encode_us = t1.duration_since(t0).as_micros() as u64;
+        self.last_tx_us = t1.elapsed().as_micros() as u64;
         Ok(())
     }
 

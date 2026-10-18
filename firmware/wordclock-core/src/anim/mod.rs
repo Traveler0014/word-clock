@@ -218,27 +218,27 @@ impl Anim {
         match state {
             State::Boot => {
                 // ① 从右下 K 起点的对角快扫（功能性自检）② KLARA 逐字常亮
-                band(l, Axis::DiagR, t_ms, 900, 1250, 420);
-                spell(l, BOOT_NAME, t_ms, 450, 340, 450, 950);
+                band(l, Axis::DiagR, t_ms, 1600, 1250, 420);
+                spell(l, BOOT_NAME, t_ms, 900, 500, 500, 950);
             }
-            State::ApStart => label_blink(l, LABEL_AP, t_ms, 3200, 550, 0),
+            State::ApStart => label_blink(l, LABEL_AP, t_ms, 4000, 550, 0),
             State::WifiConnecting => {
                 label_steady(l, LABEL_WIFI, 500);
-                band(l, Axis::DiagR, t_ms, 750, 1100, 450);
+                band(l, Axis::DiagR, t_ms, 1200, 1100, 450);
             }
             State::WifiScanning => {
                 // 横向慢扫：方向 = 标签的阅读方向（左→右），速度编码"耗时"
                 label_steady(l, LABEL_WIFI, 500);
-                band(l, Axis::X, t_ms, 2400, 1400, 420);
+                band(l, Axis::X, t_ms, 3200, 1400, 420);
             }
-            State::ProvisioningWait => label_blink(l, LABEL_WAIT, t_ms, 5500, 500, 0),
+            State::ProvisioningWait => label_blink(l, LABEL_WAIT, t_ms, 6000, 500, 0),
             State::ProvisioningClient => ripple(l, t_ms, (9, 10), 1000, 320),
             State::NtpSyncing => label_progress(l, LABEL_SYNC, t_ms, 6000, 550, true),
             State::MinuteChange => tick_dots(l, 140, 450),
             State::OtaDownload => label_progress(l, LABEL_OTA, t_ms, 14_000, 600, true),
             State::OtaApply => {
                 label_steady(l, LABEL_OTA, 550);
-                band(l, Axis::DiagR, t_ms, 2400, 1600, 280);
+                band(l, Axis::DiagR, t_ms, 3000, 1600, 280);
             }
             State::ErrorNetwork => label_blink(l, LABEL_NET, t_ms, 6000, 420, 3),
             State::ErrorTime => label_blink(l, LABEL_TIME, t_ms, 6000, 550, 3),
