@@ -7,10 +7,21 @@ edition = "2021"
 wordclock-core = { path = "../wordclock-core" }
 log = { workspace = true }
 anyhow = { workspace = true }
-smart-leds-trait = { workspace = true }
 esp-idf-svc = { version = "0.52", features = ["binstart"] }
+# 直接用到 embedded-svc 的 http/io 抽象（Method / Headers::content_len / Read / Write）
+embedded-svc = "0.29"
+# 直接用 legacy RMT（rmt_write_items 路径）需要显式开这个 feature
+esp-idf-hal = { version = "0.46", features = ["rmt-legacy"] }
 # hal 0.46 兼容版走 workspace 根部的 [patch.crates-io] vendor；Ws2812Esp32Rmt 需开此 feature
-ws2812-esp32-rmt-driver = { version = "0.13", features = ["smart-leds-trait"] }
+# 注：leddrv 已改为直接用 IDF legacy RMT 的 rmt_write_items 路径（见 leddrv.rs 注释），
+# 不再依赖 ws2812-esp32-rmt-driver；vendor 目录保留作参考。
+# ws2812-esp32-rmt-driver = { version = "0.13", features = ["smart-leds-trait"] }
 
 [build-dependencies]
 embuild = "0.33"
+
+[features]
+# diag：烧一版“不连 WiFi、只显示静态标尺”的调试固件，用于验证灯链映射/
+# 信号是否修复。开启后 main 在自检后直接进标尺循环，不进网络流程。
+#   WIFI_SSID=x WIFI_PASSWORD=y cargo build -p word-clock --features diag
+diag = []

@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>字钟 · 设置</title>
+<style>
+  /* 与配网页同一套版式：黑白 + 两级灰、无动画/图标、浏览器默认衬线、兼容易墨水屏 */
+  :root { --ink:#000; --ink2:#565656; --rule:#c4c4c4; --paper:#fff; }
+  html { background: var(--paper); color: var(--ink); }
+  body { margin:0 auto; padding:3.4rem 1.4rem 4.5rem; max-width:26em;
+         font-family:serif; font-size:17px; line-height:1.7;
+         background:var(--paper); color:var(--ink); -webkit-text-size-adjust:100%; }
+  h1 { font-size:1.4em; font-weight:normal; letter-spacing:.5em; margin:0; }
+  hr.top { border:0; border-top:1px solid var(--ink); margin:1.1em 0 0; }
+  .lead { font-size:.8em; color:var(--ink2); margin:1em 0 0; }
+  .sec { margin:2.8em 0 0; padding-bottom:.5em; border-bottom:1px solid var(--ink);
+         font-size:.7em; letter-spacing:.28em; color:var(--ink2); }
+  dl { margin:.6em 0 0; }
+  dl .row { display:flex; align-items:baseline; gap:1em; padding:.5em 0;
+            border-bottom:1px solid var(--rule); }
+  dl .row dt { flex:0 0 6.5em; font-size:.72em; letter-spacing:.1em; color:var(--ink2); }
+  dl .row dd { margin:0; flex:1; font-size:.95em; word-break:break-all; }
+
+  .opts { display:flex; gap:1.2em; margin:.5em 0 .2em; font-size:.95em; }
+  .opts span { cursor:pointer; border-bottom:1px solid transparent; }
+  .opts span.on { font-weight:bold; border-bottom-color:var(--ink); }
+  label { display:block; font-size:.7em; letter-spacing:.28em; color:var(--ink2); margin:1.8em 0 .25em; }
+  .hint { font-size:.68em; color:var(--ink2); margin:.35em 0 0; }
+  input { width:100%; font-family:inherit; font-size:1em; line-height:1.6; color:var(--ink);
+          background:transparent; border:0; border-bottom:1px solid var(--rule); padding:.32em 0;
+          border-radius:0; -webkit-appearance:none; }
+  input:focus { outline:0; border-bottom-color:var(--ink); }
+  select { width:100%; font-family:inherit; font-size:1em; line-height:1.6; color:var(--ink);
+           background:transparent; border:0; border-bottom:1px solid var(--rule); padding:.34em 0;
+           border-radius:0; -webkit-appearance:none; }
+  select:focus { outline:0; border-bottom-color:var(--ink); }
+  button { display:block; width:100%; margin:1.8em 0 0; padding:.82em 0; font-family:inherit;
+           font-size:.92em; letter-spacing:.4em; text-indent:.4em; color:var(--paper);
+           background:var(--ink); border:1px solid var(--ink); border-radius:0; cursor:pointer; }
+  button:disabled { background:var(--paper); color:var(--ink2); border-color:var(--rule); }
+  button.ghost { background:var(--paper); color:var(--ink); }
+  .danger { margin-top:3.2em; padding-top:1em; border-top:1px solid var(--rule); }
+  .danger button { border-color:var(--ink); }
+  #state { margin:1.2em 0 0; font-size:.8em; color:var(--ink2); min-height:1.8em; }
+  #note { margin:2.6em 0 0; padding-top:1em; border-top:1px solid var(--rule);
+          font-size:.7em; line-height:1.85; color:var(--ink2); }
+  .hide { display:none; }
+  @media (prefers-contrast: more) { :root { --ink2:#000; --rule:#000; } }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink:#fff; --ink2:#a8a8a8; --rule:#4a4a4a; --paper:#000; }
+    button { color:#000; background:var(--ink); }
+    button.ghost { background:#000; color:#fff; }
+    button:disabled { background:#000; color:var(--ink2); border-color:var(--rule); }
+  }
+</style>
+</head>
+<body>
+<h1>字钟</h1>
+<hr class="top">
+<p class="lead" id="lead"></p>
+
+<!-- 登录（仅在设置了管理口令且未登录时显示） -->
+<section id="login" class="hide">
+  <div class="sec" id="sec_login"></div>
+  <form id="loginForm">
+    <label for="lp" id="l_lp"></label>
+    <input id="lp" type="password" autocomplete="current-password">
+    <button id="loginBtn" type="submit"></button>
+  </form>
+</section>
+
+<!-- 状态 -->
+<section id="status">
+  <div class="sec" id="sec_status"></div>
+  <dl>
+    <div class="row"><dt id="k_ssid"></dt><dd id="v_ssid">—</dd></div>
+    <div class="row"><dt id="k_ip"></dt><dd id="v_ip">—</dd></div>
+    <div class="row"><dt id="k_rssi"></dt><dd id="v_rssi">—</dd></div>
+    <div class="row"><dt id="k_up"></dt><dd id="v_up">—</dd></div>
+    <div class="row"><dt id="k_fw"></dt><dd id="v_fw">—</dd></div>
+  </dl>
+</section>
+
+<!-- 设置（需登录） -->
+<section id="cfg" class="hide">
+  <div class="sec" id="sec_cfg"></div>
+
+  <label id="l_bright"></label>
+  <div class="opts" id="bright"></div>
+
+  <label id="l_color"></label>
+  <div class="opts" id="color"></div>
+
+  <form id="cfgForm">
+    <label for="tz" id="l_tz"></label>
+    <select id="tz"></select>
+    <input id="tzCustom" style="display:none" placeholder="CST-8">
+    <p class="hint" id="h_tz"></p>
+
+    <label for="admin" id="l_admin"></label>
+    <input id="admin" type="password" autocomplete="new-password">
+    <p class="hint" id="h_admin"></p>
+
+    <button id="saveBtn" type="submit"></button>
+  </form>
+
+  <div class="sec" id="sec_wifi"></div>
+  <form id="wifiForm">
+    <label for="wssid" id="l_wssid"></label>
+    <input id="wssid" autocapitalize="off" autocorrect="off" spellcheck="false">
+    <label for="wpass" id="l_wpass"></label>
+    <input id="wpass" type="password" autocomplete="off">
+    <button id="wifiBtn" type="submit"></button>
+  </form>
+
+  <div class="danger">
+    <button id="resetBtn" class="ghost" type="button"></button>
+  </div>
+</section>
+
+<div id="state"></div>
+<div id="note"></div>
+
+<script src="/tz.js"></script>
+<script>
+(function () {
+  var L = (navigator.language || "en").toLowerCase().indexOf("zh") === 0 ? "zh" : "en";
+  var T = {
+    zh: {
+      lead: "运行中。以下设置即时生效，写入后断电保留。",
+      secLogin: "管理口令", lLogin: "口 令", btnLogin: "进入",
+      secStatus: "状态", kSsid: "网络", kIp: "地址", kRssi: "信号",
+      kUp: "运行时长", kFw: "固件",
+      secCfg: "显示", lBright: "亮 度", lColor: "色 温", lTz: "时 区",
+      hTz: "按所在地区选择即可；特殊需求可选自定义并填写 POSIX 时区串。",
+      lAdmin: "管理口令", hAdmin: "留空 = 局域网内无需口令即可修改设置。",
+      btnSave: "保 存",
+      secWifi: "更换网络", lSsid: "名 称", lPass: "密 码", btnWifi: "更换并重启",
+      btnReset: "恢复出厂", btnReset2: "再点一次确认",
+      saved: "已保存。", saving: "保存中…",
+      loginFail: "口令错误。", loginLocked: "尝试过多，请稍后再试。",
+      wifiSent: "已提交，设备将重启并尝试连接。",
+      resetSent: "已请求恢复出厂，设备即将重启进入配网模式。",
+      bright: ["1 暗", "2 较暗", "3 标准", "4 最亮"],
+      color: ["暖白", "正白", "琥珀"],
+      note: "本页仅在同一局域网内可访问。更换网络或恢复出厂后，设备会重启。"
+    },
+    en: {
+      lead: "Running. Changes take effect immediately and persist across power cycles.",
+      secLogin: "Admin password", lLogin: "PASSWORD", btnLogin: "ENTER",
+      secStatus: "Status", kSsid: "Network", kIp: "Address", kRssi: "Signal",
+      kUp: "Uptime", kFw: "Firmware",
+      secCfg: "Display", lBright: "BRIGHTNESS", lColor: "COLOR", lTz: "TIMEZONE",
+      hTz: "Pick your region. Use custom only if you need a specific POSIX string.",
+      lAdmin: "Admin password", hAdmin: "Leave empty to allow changes without a password on the LAN.",
+      btnSave: "SAVE",
+      secWifi: "Change network", lSsid: "SSID", lPass: "PASSWORD", btnWifi: "CHANGE AND REBOOT",
+      btnReset: "Factory reset", btnReset2: "Tap again to confirm",
+      saved: "Saved.", saving: "Saving…",
+      loginFail: "Wrong password.", loginLocked: "Too many attempts. Try again later.",
+      wifiSent: "Submitted. The device will reboot and try to connect.",
+      resetSent: "Factory reset requested. Rebooting into setup mode.",
+      bright: ["1 dim", "2 low", "3 normal", "4 max"],
+      color: ["Warm", "Neutral", "Amber"],
+      note: "This page is reachable only on the same LAN. Changing network or factory reset reboots the device."
+    }
+  }[L];
+
+  function t(k) { return T[k] || k; }
+
+  function buildZones() {
+    var sel = $("tz");
+    sel.innerHTML = "";
+    window.TZ_TABLE.forEach(function (z) {
+      var o = document.createElement("option");
+      o.value = z.posix;
+      o.textContent = z.offset + " · " + (L === "zh" ? z.zh : z.en);
+      sel.appendChild(o);
+    });
+    var c = document.createElement("option");
+    c.value = "__custom__";
+    c.textContent = L === "zh" ? "自定义（POSIX 时区串）" : "Custom (POSIX string)";
+    sel.appendChild(c);
+    sel.onchange = function () {
+      var custom = sel.value === "__custom__";
+      $("tzCustom").style.display = custom ? "" : "none";
+      dirty = true;
+      $("saveBtn").disabled = false;
+    };
+  }
+
+  function currentTz() {
+    return $("tz").value === "__custom__" ? $("tzCustom").value.trim() : $("tz").value;
+  }
+
+  function applyTz(value) {
+    var found = !!window.tzLookupPosix(value);
+    if (found) {
+      $("tz").value = value;
+      $("tzCustom").style.display = "none";
+    } else {
+      $("tz").value = "__custom__";
+      $("tzCustom").style.display = "";
+      $("tzCustom").value = value || "";
+    }
+  }
+  var $ = function (id) { return document.getElementById(id); };
+  var state = { brightness: 3, color: 0, authed: false, adminSet: false };
+  var stateText = "";
+  var resetArmed = false;
+  // 用户改过但还没保存 → 轮询不得覆盖表单（否则选中项会被刷回设备当前值）
+  var dirty = false;
+
+  function setText(id, val) {
+    var el = $(id);
+    if (el.textContent !== val) el.textContent = val;   // 墨水屏：内容没变就不重绘
+  }
+
+  function setState(s) { if (s !== stateText) { stateText = s; $("state").textContent = s; } }
+
+  function opts(box, labels, current, onPick) {
+    box.innerHTML = "";
+    labels.forEach(function (lab, i) {
+      var s = document.createElement("span");
+      s.textContent = lab;
+      if (i === current) s.className = "on";
+      s.onclick = function () { onPick(i); };
+      box.appendChild(s);
+    });
+  }
+
+  function paintStatic() {
+    document.documentElement.lang = L === "zh" ? "zh-CN" : "en";
+    $("lead").textContent = t("lead");
+    $("sec_login").textContent = t("secLogin");
+    $("l_lp").textContent = t("lLogin");
+    $("loginBtn").textContent = t("btnLogin");
+    $("sec_status").textContent = t("secStatus");
+    $("k_ssid").textContent = t("kSsid");
+    $("k_ip").textContent = t("kIp");
+    $("k_rssi").textContent = t("kRssi");
+    $("k_up").textContent = t("kUp");
+    $("k_fw").textContent = t("kFw");
+    $("sec_cfg").textContent = t("secCfg");
+    $("l_bright").textContent = t("lBright");
+    $("l_color").textContent = t("lColor");
+    $("l_tz").textContent = t("lTz");
+    $("h_tz").textContent = t("hTz");
+    $("l_admin").textContent = t("lAdmin");
+    $("h_admin").textContent = t("hAdmin");
+    $("saveBtn").textContent = t("btnSave");
+    $("sec_wifi").textContent = t("secWifi");
+    $("l_wssid").textContent = t("lSsid");
+    $("l_wpass").textContent = t("lPass");
+    $("wifiBtn").textContent = t("btnWifi");
+    $("resetBtn").textContent = t("btnReset");
+    $("note").textContent = t("note");
+  }
+
+  function paintOpts() {
+    opts($("bright"), t("bright"), state.brightness - 1, function (i) {
+      state.brightness = i + 1; dirty = true; paintOpts(); $("saveBtn").disabled = false;
+    });
+    opts($("color"), t("color"), state.color, function (i) {
+      state.color = i; dirty = true; paintOpts(); $("saveBtn").disabled = false;
+    });
+  }
+
+  function refresh() {
+    return fetch("/api/info", { cache: "no-store" })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        state.authed = !!j.admin_ok;
+        state.adminSet = !!j.admin;
+        setText("v_ssid", j.ssid || "—");
+        setText("v_ip", j.ip || "—");
+        setText("v_rssi", j.rssi ? j.rssi + " dBm" : "—");
+        var m = Math.floor(j.uptime / 60);
+        setText("v_up", m >= 60 ? Math.floor(m / 60) + "h " + (m % 60) + "m" : m + "m");
+        setText("v_fw", j.fw || "—");
+        var needLogin = state.adminSet && !state.authed;
+        $("login").className = needLogin ? "" : "hide";
+        $("cfg").className = needLogin ? "hide" : "";
+        if (!needLogin) { loadSettings(); }
+      })
+      .catch(function () {});
+  }
+
+  function loadSettings() {
+    if (dirty) return;                     // 有未保存的改动 → 不覆盖表单
+    fetch("/api/settings", { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) {
+        if (!j) return;
+        state.brightness = j.brightness || 3;
+        state.color = j.color || 0;
+        if (!dirty) {
+          applyTz(j.tz || "CST-8");
+        }
+        paintOpts();
+        $("saveBtn").disabled = true;
+      })
+      .catch(function () {});
+  }
+
+  $("loginForm").onsubmit = function (e) {
+    e.preventDefault();
+    setState(t("loginFail"));
+    fetch("/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "pass=" + encodeURIComponent($("lp").value)
+    }).then(function (r) {
+      if (r.status === 429) { setState(t("loginLocked")); return; }
+      if (!r.ok) { setState(t("loginFail")); return; }
+      $("lp").value = "";
+      setState("");
+      refresh();
+    }).catch(function () {});
+  };
+
+  $("cfgForm").onsubmit = function (e) {
+    e.preventDefault();
+    setState(t("saving"));
+    var body = "brightness=" + state.brightness + "&color=" + state.color +
+               "&tz=" + encodeURIComponent(currentTz()) +
+               "&admin=" + encodeURIComponent($("admin").value);
+    fetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body
+    }).then(function (r) {
+      if (r.status === 401) { setState(t("loginFail")); return; }
+      $("admin").value = "";
+      $("saveBtn").disabled = true;
+      dirty = false;                       // 提交成功后才允许轮询覆盖
+      setState(t("saved"));
+      refresh();
+    }).catch(function () {});
+  };
+
+  $("wifiForm").onsubmit = function (e) {
+    e.preventDefault();
+    fetch("/api/wifi", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "ssid=" + encodeURIComponent($("wssid").value) +
+            "&pass=" + encodeURIComponent($("wpass").value)
+    }).then(function (r) { if (r.ok) setState(t("wifiSent")); }).catch(function () {});
+  };
+
+  $("resetBtn").onclick = function () {
+    if (!resetArmed) {
+      resetArmed = true;
+      $("resetBtn").textContent = t("btnReset2");
+      return;
+    }
+    fetch("/api/reset", { method: "POST" })
+      .then(function () { setState(t("resetSent")); })
+      .catch(function () {});
+  };
+
+  $("tzCustom").oninput = function () { dirty = true; $("saveBtn").disabled = false; };
+
+  buildZones();
+  paintStatic();
+  paintOpts();
+  refresh();
+  setInterval(refresh, 5000);
+})();
+</script>
+</body>
+</html>

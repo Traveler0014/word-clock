@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>字钟 · 配网</title>
+<style>
+  /* 黑白 + 两级灰；灰只用于非关键信息；无动画/图标；浏览器默认衬线；兼容易墨水屏 */
+  :root { --ink:#000; --ink2:#565656; --rule:#c4c4c4; --paper:#fff; }
+  html { background: var(--paper); color: var(--ink); }
+  body { margin:0 auto; padding:3.4rem 1.4rem 4.5rem; max-width:26em;
+         font-family:serif; font-size:17px; line-height:1.7;
+         background:var(--paper); color:var(--ink); -webkit-text-size-adjust:100%; }
+  h1 { font-size:1.4em; font-weight:normal; letter-spacing:.5em; margin:0; }
+  hr.top { border:0; border-top:1px solid var(--ink); margin:1.1em 0 0; }
+  .lead { font-size:.8em; color:var(--ink2); margin:1em 0 0; }
+  .step { display:none; } .step.on { display:block; }
+  .zhead { display:flex; align-items:baseline; justify-content:space-between; gap:1em;
+           margin:2.8em 0 0; padding-bottom:.5em; border-bottom:1px solid var(--ink); }
+  .zhead h2 { font-size:.7em; font-weight:normal; letter-spacing:.28em; margin:0; color:var(--ink2); }
+  .act { font-size:.7em; letter-spacing:.1em; color:var(--ink); text-decoration:underline;
+         text-underline-offset:.3em; cursor:pointer; white-space:nowrap; }
+  ol.nets { list-style:none; margin:0; padding:0; }
+  ol.nets li { display:flex; align-items:baseline; gap:.8em; padding:.8em 0;
+               border-bottom:1px solid var(--rule); cursor:pointer; }
+  ol.nets li .n { flex:1; font-size:1.12em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  ol.nets li .m { font-size:.68em; color:var(--ink2); white-space:nowrap; }
+  ol.nets li.empty { font-size:.8em; color:var(--ink2); cursor:default; }
+  .pick { margin:2.8em 0 0; }
+  .pick .k { font-size:.7em; letter-spacing:.28em; color:var(--ink2); }
+  .pick .v { font-size:1.5em; line-height:1.4; word-break:break-all; margin-top:.1em; }
+  label { display:block; font-size:.7em; letter-spacing:.28em; color:var(--ink2); margin:2.2em 0 .25em; }
+  .hint { font-size:.68em; color:var(--ink2); margin:.4em 0 0; }
+  input { width:100%; font-family:inherit; font-size:1.02em; line-height:1.6; color:var(--ink);
+          background:transparent; border:0; border-bottom:1px solid var(--rule); padding:.32em 0;
+          border-radius:0; -webkit-appearance:none; }
+  input:focus { outline:0; border-bottom-color:var(--ink); }
+  input.big { font-size:1.35em; line-height:1.4; }
+  button { display:block; width:100%; margin:2.6em 0 0; padding:.88em 0; font-family:inherit;
+           font-size:.95em; letter-spacing:.45em; text-indent:.45em; color:var(--paper);
+           background:var(--ink); border:1px solid var(--ink); border-radius:0; cursor:pointer; }
+  button:disabled { background:var(--paper); color:var(--ink2); border-color:var(--rule); }
+  .back { display:inline-block; margin:1.8em 0 0; font-size:.72em; letter-spacing:.18em;
+          color:var(--ink); text-decoration:underline; text-underline-offset:.3em; cursor:pointer; }
+  #state1,#state2 { margin:1.3em 0 0; font-size:.8em; color:var(--ink2); min-height:1.8em; }
+  #note { margin:3em 0 0; padding-top:1em; border-top:1px solid var(--rule);
+          font-size:.7em; line-height:1.85; color:var(--ink2); }
+  @media (prefers-contrast: more) { :root { --ink2:#000; --rule:#000; } }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink:#fff; --ink2:#a8a8a8; --rule:#4a4a4a; --paper:#000; }
+    button { color:#000; background:var(--ink); }
+    button:disabled { background:#000; color:var(--ink2); border-color:var(--rule); }
+  }
+</style>
+</head>
+<body>
+<h1>字钟</h1>
+<hr class="top">
+
+<section class="step on" id="s1">
+  <p class="lead" id="lead1"></p>
+  <div class="zhead"><h2 id="h_near"></h2><span class="act" id="rescan"></span></div>
+  <ol class="nets" id="nets"></ol>
+  <span class="back" id="manual"></span>
+  <div id="state1"></div>
+</section>
+
+<section class="step" id="s2">
+  <p class="lead" id="lead2"></p>
+  <div class="pick">
+    <div class="k" id="k_net"></div>
+    <div class="v" id="picked">—</div>
+    <input class="big" id="ssidInput" style="display:none" autocapitalize="off"
+           autocorrect="off" spellcheck="false">
+  </div>
+  <form id="form">
+    <div id="passWrap">
+      <label for="pass" id="l_pass"></label>
+      <input id="pass" name="pass" type="password" autocomplete="off">
+    </div>
+    <label for="admin" id="l_admin"></label>
+    <input id="admin" name="admin" type="password" autocomplete="off">
+    <p class="hint" id="h_admin"></p>
+    <p class="hint" id="h_tz"></p>
+    <button id="go" type="submit"></button>
+  </form>
+  <span class="back" id="back"></span>
+  <div id="state2"></div>
+</section>
+
+<div id="note"></div>
+
+<script src="/tz.js"></script>
+<script>
+(function () {
+  var L = (navigator.language || "en").toLowerCase().indexOf("zh") === 0 ? "zh" : "en";
+  var T = {
+    zh: {
+      lead1: "选择网络。", near: "附近的网络", rescan: "重新扫描",
+      manual: "网络未在列表中？手动输入", knet: "网 络", pass: "密 码",
+      admin: "管理口令（可选）",
+      adminHint: "设置后，局域网管理页需要此口令才能修改设置。留空表示不鉴权。",
+      tzHint: "时区：{tz}（按当前设备自动识别，运行后可在设置页修改）",
+      tzHintUnknown: "时区：未能识别，将使用默认 CST-8（运行后可在设置页修改）",
+      connect: "连 接", connectOpen: "直 接 连 接", lead2: "输入密码。",
+      lead2open: "该网络无需密码。", back: "← 返回网络列表",
+      scanning: "正在扫描。", connecting: "正在连接，约需十五秒。",
+      waiting: "等待选择。", submitted: "已提交，正在连接。",
+      ok: "已连接 {ip}。设备即将重启。", fail: "连接失败：{e}。可重试。",
+      needName: "请填写网络名称。", needPick: "请先返回列表选择网络。",
+      submitFail: "提交失败：{e}", noNets: "未发现网络。可手动输入名称。",
+      scanningList: "正在扫描…",
+      note: "保存后设备重启并连接所选网络。配置设备需切回原网络方可再次访问。<br>热点无密码保护，请勿在公共场所配网。"
+    },
+    en: {
+      lead1: "Choose a network.", near: "Networks nearby", rescan: "Rescan",
+      manual: "Not listed? Enter manually", knet: "NETWORK", pass: "PASSWORD",
+      admin: "Admin password (optional)",
+      adminHint: "If set, the LAN admin page requires this password. Leave empty for no auth.",
+      tzHint: "Timezone: {tz} (detected from this device; changeable later in settings)",
+      tzHintUnknown: "Timezone: not detected, defaulting to CST-8 (changeable later in settings)",
+      connect: "CONNECT", connectOpen: "CONNECT", lead2: "Enter the password.",
+      lead2open: "This network needs no password.", back: "← Back to networks",
+      scanning: "Scanning.", connecting: "Connecting, about 15 seconds.",
+      waiting: "Waiting for selection.", submitted: "Submitted, connecting.",
+      ok: "Connected {ip}. Rebooting.", fail: "Connection failed: {e}. You may retry.",
+      needName: "Please enter a network name.", needPick: "Please pick a network first.",
+      submitFail: "Submit failed: {e}", noNets: "No networks found. You can type a name.",
+      scanningList: "Scanning…",
+      note: "The device reboots and joins the chosen network. Switch your phone back afterwards.<br>The setup hotspot has no password; do not configure in public places."
+    }
+  }[L];
+
+  function t(k, vars) {
+    var s = T[k] || k;
+    if (vars) { Object.keys(vars).forEach(function (n) { s = s.replace("{" + n + "}", vars[n]); }); }
+    return s;
+  }
+  var $ = function (id) { return document.getElementById(id); };
+  var nets = [], rendered = "", stateText = "", target = null;
+
+  function boot() {
+    document.documentElement.lang = L === "zh" ? "zh-CN" : "en";
+    $("lead1").textContent = t("lead1");
+    $("h_near").textContent = t("near");
+    $("rescan").textContent = t("rescan");
+    $("manual").textContent = t("manual");
+    $("k_net").textContent = t("knet");
+    $("l_pass").textContent = t("pass");
+    $("l_admin").textContent = t("admin");
+    $("h_admin").textContent = t("adminHint");
+    $("back").textContent = t("back");
+    $("note").innerHTML = t("note");
+    $("ssidInput").placeholder = L === "zh" ? "网络名称" : "Network name";
+    $("nets").innerHTML = '<li class="empty">' + t("scanningList") + "</li>";
+    TZ = window.tzDetect();
+    $("h_tz").textContent = TZ.known || TZ.posix !== "CST-8"
+      ? t("tzHint", { tz: TZ.label + "  " + TZ.posix })
+      : t("tzHintUnknown");
+    setState(t("waiting"));
+  }
+
+  function step(n) {
+    $("s1").className = "step" + (n === 1 ? " on" : "");
+    $("s2").className = "step" + (n === 2 ? " on" : "");
+  }
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c];
+    });
+  }
+
+  function renderNets() {
+    var key = nets.map(function (n) { return n.ssid + n.secured; }).join("|");
+    if (key === rendered) return;
+    rendered = key;
+    var box = $("nets");
+    if (!nets.length) { box.innerHTML = '<li class="empty">' + t("noNets") + "</li>"; return; }
+    box.innerHTML = "";
+    nets.forEach(function (n) {
+      var li = document.createElement("li");
+      li.innerHTML = '<span class="n">' + esc(n.ssid) + '</span><span class="m">' +
+                     (n.secured ? (L === "zh" ? "加密" : "secured")
+                                : (L === "zh" ? "开放" : "open")) + "</span>";
+      li.onclick = function () { choose(n.ssid, n.secured, false); };
+      box.appendChild(li);
+    });
+  }
+
+  function choose(ssid, secured, manual) {
+    target = { ssid: ssid, secured: secured, manual: manual };
+    $("picked").textContent = manual ? "" : ssid;
+    $("picked").style.display = manual ? "none" : "";
+    $("ssidInput").style.display = manual ? "" : "none";
+    $("ssidInput").value = manual ? "" : ssid;
+    $("passWrap").style.display = secured ? "" : "none";
+    $("pass").value = "";
+    $("go").textContent = secured ? t("connect") : t("connectOpen");
+    $("lead2").textContent = secured ? t("lead2") : t("lead2open");
+    setState("");
+    step(2);
+    if (manual) $("ssidInput").focus(); else if (secured) $("pass").focus();
+  }
+
+  function setState(s) {
+    if (s === stateText) return;
+    stateText = s;
+    $("state1").textContent = $("s1").classList.contains("on") ? s : "";
+    $("state2").textContent = $("s2").classList.contains("on") ? s : "";
+  }
+
+  function poll() {
+    fetch("/api/status", { cache: "no-store" }).then(function (r) { return r.json(); })
+      .then(function (j) {
+        nets = j.nets || [];
+        renderNets();
+        var s = j.state || "";
+        if (s === "scanning") setState(t("scanning"));
+        else if (s === "connecting") setState(t("connecting"));
+        else if (s.indexOf("ok:") === 0) { setState(t("ok", { ip: s.slice(3) })); $("go").disabled = true; }
+        else if (s.indexOf("fail:") === 0) { setState(t("fail", { e: s.slice(5) })); $("go").disabled = false; }
+      }).catch(function () {});
+  }
+
+  $("rescan").onclick = function () {
+    setState(t("scanning"));
+    fetch("/api/scan", { method: "POST" }).catch(function () {});
+  };
+  $("manual").onclick = function () { choose("", true, true); };
+  $("back").onclick = function () { target = null; setState(""); $("go").disabled = false; step(1); };
+
+  $("form").onsubmit = function (e) {
+    e.preventDefault();
+    if (!target) { setState(t("needPick")); return; }
+    var ssid = target.manual ? $("ssidInput").value.trim() : target.ssid;
+    if (!ssid) { setState(t("needName")); return; }
+    $("go").disabled = true;
+    setState(t("submitted"));
+    fetch("/api/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "ssid=" + encodeURIComponent(ssid) +
+            "&pass=" + encodeURIComponent(target.secured ? $("pass").value : "") +
+            "&admin=" + encodeURIComponent($("admin").value) +
+            "&tz=" + encodeURIComponent(TZ ? TZ.posix : "")
+    }).then(function (r) {
+      if (!r.ok) return r.text().then(function (x) { setState(t("submitFail", { e: x })); $("go").disabled = false; });
+    }).catch(function (err) { setState(t("submitFail", { e: err })); $("go").disabled = false; });
+  };
+
+  boot();
+  $("rescan").onclick();
+  poll();
+  setInterval(poll, 3000);
+})();
+</script>
+</body>
+</html>

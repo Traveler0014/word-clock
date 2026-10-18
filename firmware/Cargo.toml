@@ -3,8 +3,11 @@ resolver = "2"
 members = ["app", "wordclock-core"]
 
 # hal 0.46 时代暂无匹配发行版，本地 vendor 后 bump 其 hal/sys 依赖
-[patch.crates-io]
-ws2812-esp32-rmt-driver = { path = "vendor/ws2812-esp32-rmt-driver" }
+# vendor/ws2812-esp32-rmt-driver 已不再被引用（leddrv 改用 IDF legacy RMT 的
+# rmt_write_items 路径，见 app/src/leddrv.rs 文件头）。目录保留作参考；
+# 若要回退，把下面这行重新打开即可。
+# [patch.crates-io]
+# ws2812-esp32-rmt-driver = { path = "vendor/ws2812-esp32-rmt-driver" }
 
 [workspace.dependencies]
 log = "0.4"

@@ -40,6 +40,16 @@ pub fn wait_synced(sntp: &EspSntp) {
     info!("NTP synced");
 }
 
+/// 运行期设置时区（POSIX 串，如 "CST-8"）。管理页改时区走这里。
+pub fn set_tz(tz: &str) {
+    if tz.is_empty() {
+        return;
+    }
+    std::env::set_var("TZ", tz);
+    unsafe { esp_idf_svc::sys::tzset() };
+    info!("time_svc: TZ = {tz}");
+}
+
 /// 本地 (hour, minute)，走 newlib localtime_r（已应用 TZ）
 pub fn local_hm() -> (u8, u8) {
     unsafe {

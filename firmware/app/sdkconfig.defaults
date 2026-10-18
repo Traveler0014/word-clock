@@ -4,4 +4,8 @@ CONFIG_IDF_TARGET="esp32c5"
 # 注意：Rust log 的 stdout 输出只进主控制台；USB-Serial-JTAG 口保留烧录用
 CONFIG_ESP_CONSOLE_UART_DEFAULT=y
 # Rust 栈帧较大，默认 3584 会触发 Stack protection fault（已实测）
-CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
+# 配网模式下要跑「扫描 + 页面字符串处理」，16KB 会栈溢出（实测 Stack protection fault）
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=32768
+
+# std::thread 默认栈（IDF 默认 3072 太小：std::net 初始化就会爆栈）
+CONFIG_PTHREAD_TASK_STACK_SIZE_DEFAULT=8192
