@@ -9,3 +9,11 @@
 *.gcode binary
 *.png binary
 *.jpg binary
+
+# 硬件产物按二进制处理：Gerber/KiCad/STEP 不应被换行规范化改写（打样需字节一致）
+hardware/fab/** binary
+hardware/*.kicad_pcb binary
+hardware/*.kicad_sch binary
+hardware/*.kicad_pro binary
+hardware/**/*.step binary
+hardware/**/*.csv text eol=lf

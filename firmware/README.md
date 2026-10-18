@@ -32,10 +32,10 @@ firmware/
 
 ## 网络
 
-编译期凭据注入（详见 docs/development.md）：
+构建（凭据不进固件，首次上电经配网页面写入 NVS，详见 docs/development.md）：
 
 ```bash
-WIFI_SSID=xxx WIFI_PASSWORD=yyy cargo build -p word-clock
+cargo build -p word-clock   # 不需要 WiFi 凭据：首次上电用配网页面写入
 ```
 
 国内构建加速（IDF 组件/GitHub 资产代理）如需，参考：
