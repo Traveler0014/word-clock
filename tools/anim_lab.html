@@ -712,6 +712,12 @@ const GEN = {
       return;
     }
 
+    // steady：全字母常亮不闪 —— 当作"身份标签"用，和叠加的运动配合，
+    // 例如扫描 = WIFI(常亮身份) + 纵向快扫(注意通道)
+    if (mode === "steady") {
+      for (const i of cells) put(i, peak, "max", g.tint);
+      return;
+    }
     if (mode === "blink") {
       const per = gp(g, "period"), sharp = gp(g, "sharp");
       // 一个周期内两次脉冲 → "提醒"而不是"呼吸"
@@ -976,9 +982,12 @@ const THEME_DESC = {
       wifi_connecting:     { stars: {}, mods: [
                                { gen: "label", text: "WIFI", mode: "blink", period: 4.5, sharp: 3, peak: 0.55,
                                  cells: [[2,1],[0,3],[2,6],[2,7]] }] },
-      // 扫描信道：SCAN 在板上排不出可读阵型（最紧 9×5），所以改用**运动**表达：
-      // 一次纵向快扫 0.45s，连扫几轮 = 在逐条信道找。
-      wifi_scanning:       { stars: {}, mods: [{ gen: "band", axis: "y", period: 0.45, width: 1.2, peak: 0.45 }] },
+      // 扫描信道：WIFI 常亮（身份，不抢注意）+ 纵向快扫（注意通道）
+      // —— 读作"WiFi 这一层正在逐条信道找"，比单独一个 SCAN 词清楚得多
+      wifi_scanning:       { stars: {}, mods: [
+                               { gen: "label", text: "WIFI", mode: "steady", peak: 0.50,
+                                 cells: [[2,1],[0,3],[2,6],[2,7]] },
+                               { gen: "band", axis: "y", period: 0.55, width: 0.75, peak: 0.46 }] },
       // 等你操作：潮汐（人的节奏）+ WAIT 点名（慢，不催）
       provisioning_wait:   { stars: { rate: 0.9, tide: { period: 26, lo: 0.25 } },
                              mods: [{ gen: "label", text: "WAIT", mode: "blink", period: 5.5, sharp: 3, peak: 0.5,
@@ -1001,9 +1010,9 @@ const THEME_DESC = {
                                { gen: "label", text: "OTA", mode: "progress", progress: "demo", demo: 14,
                                  dots: true, peak: 0.60, cells: [[6,1],[4,3],[1,4]] }] },
       ota_apply:           { stars: {}, mods: [
-                               { gen: "label", text: "OTA", mode: "progress", progress: 1, peak: 0.60,
+                               { gen: "label", text: "OTA", mode: "steady", peak: 0.55,
                                  cells: [[6,1],[4,3],[1,4]] },
-                               { gen: "band", axis: "diagr", period: 2.4, width: 1.6, peak: 0.22 }] },
+                               { gen: "band", axis: "diagr", period: 2.4, width: 1.6, peak: 0.28 }] },
       // 错误语义用"还能不能报时"来表达（比任何标签都直观）：
       //   网络断了 → 时间照常显示但明显降级（暗 50%、偏暖）+ 一颗角点缓慢搏动
       //   时间未知 → 根本不给时间，只有 TIME 闪烁 = "我不知道现在几点"
@@ -1338,7 +1347,7 @@ const GEN_SPEC = {
   dotPulse:{ label: "四角点搏动", params: [["dots", "点 0-3", "text"], ["period", "周期 s", "num", 0.3, 20, 0.1],
              ["peak", "峰值 α", "num", 0, 1.2, 0.01], ["base", "基底 α", "num", 0, 1, 0.01], ["sharp", "锐度", "num", 1, 8, 0.5]] },
   label:   { label: "标签（点名/进度）", params: [["text", "文字", "text"], ["cells", "写死点位 r,c", "cells"],
-             ["mode", "模式", "sel", ["blink", "progress"]], ["progress", "进度", "prog"],
+             ["mode", "模式", "sel", ["steady", "blink", "progress", "sequence"]], ["progress", "进度", "prog"],
              ["demo", "演示 s", "num", 1, 60, 0.5], ["period", "闪烁周期 s", "num", 0.5, 30, 0.5],
              ["sharp", "锐度", "num", 1, 8, 0.5], ["settle", "已亮保持倍", "num", 0, 1, 0.05],
              ["spread", "同字母间距", "num", 0, 12, 1], ["peak", "峰值 α", "num", 0, 1.2, 0.01]] },
