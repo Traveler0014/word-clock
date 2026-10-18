@@ -539,7 +539,8 @@ const GDEF = {
   spell:   { letters: "KLARA", cells: null, step: 0.34, fade: 0.45, hold: 0.0, fadeOut: 0.0,
              persist: 1.0, spread: 3, delay: 0.0, peak: 0.95, blend: "max" },
   label:   { text: "SYNC", cells: null, mode: "progress", progress: "demo", demo: 6, settle: 0.75,
-             dots: true, period: 5, sharp: 3, spread: 2, peak: 0.6, blend: "max" },
+             dots: true, period: 5, sharp: 3, spread: 2, peak: 0.6, blend: "max",
+             step: 0.9, fade: 0.5, hold: 0.6, fadeOut: 0.5 },
 };
 const gp = (g, k) => (g[k] != null ? g[k] : GDEF[g.gen][k]);
 
@@ -669,7 +670,29 @@ const GEN = {
     const text = (g.text || "").toUpperCase().replace(/[^A-Z]/g, "");
     if (!text) return;
     const cells = cellsOf(g) || resolveLabel(text);
+    if (!cells.length) return;
     const peak = gp(g, "peak"), mode = gp(g, "mode");
+    const info = monotonicInfo(cells, true);      // 词：只认"列→ / 行↓"
+
+    // 空间上做不到单向性时，改用"时序单向性"：按顺序逐个渐亮渐隐。
+    // 这样"先 A 后 B"由时间保证，不依赖字母摆在哪。
+    const temporal = mode === "sequence" || (mode === "progress" && !info.dir);
+    if (temporal) {
+      const step = gp(g, "step"), fade = gp(g, "fade"), hold = gp(g, "hold"), fo = gp(g, "fadeOut");
+      const cycle = cells.length * step + fade + hold + fo;
+      const tt = t % cycle;
+      for (let k = 0; k < cells.length; k++) {
+        const local = tt - k * step;
+        if (local < 0) continue;
+        let env;
+        if (local < fade) env = smooth(local / fade);
+        else if (local < fade + hold) env = 1;
+        else if (local < fade + hold + fo) env = 1 - smooth((local - fade - hold) / fo);
+        else env = 0;
+        if (env > 0) put(cells[k], peak * env, "max", g.tint);
+      }
+      return;
+    }
 
     if (mode === "blink") {
       const per = gp(g, "period"), sharp = gp(g, "sharp");
@@ -698,6 +721,26 @@ const GEN = {
   },
 };
 
+/* 单向性（monotonicity）：可读性的硬约束。
+   英文词要求"列从左到右"（或退一步"行从上到下"）严格单调 —— 这样眼睛
+   能按方向把散落的字母串起来。名字（KLARA）允许任意方向单调，因为方向
+   本身就是语义（从右下往左上"升起"）。*/
+function monotonicInfo(cells, naturalOnly) {
+  const rows = cells.map(i => ledRC(i)[0]);
+  const cols = cells.map(i => ledRC(i)[1]);
+  const inc = (v) => v.every((x, k) => k === 0 || x > v[k - 1]);
+  const dec = (v) => v.every((x, k) => k === 0 || x < v[k - 1]);
+  let dir = null;
+  if (inc(cols)) dir = "列→";
+  else if (inc(rows)) dir = "行↓";
+  else if (!naturalOnly) {
+    if (dec(cols)) dir = "列←";
+    else if (dec(rows)) dir = "行↑";
+  }
+  const bbox = [Math.max(...rows) - Math.min(...rows), Math.max(...cols) - Math.min(...cols)];
+  return { dir, bbox };
+}
+
 /* 标签选格（label 用）：**按阅读顺序、均匀铺开**。
    为什么不用 spell 的"最近邻连线"：那样 NET 会被选成 (9,2)N→(9,1)E→(9,0)T，
    空间上连成 "TEN"，读起来是反的假词。改成"每个字母落在它该在的 1/n 位置
@@ -706,31 +749,51 @@ const GEN = {
 const LABEL_CACHE = {};
 function resolveLabel(text) {
   if (LABEL_CACHE[text]) return LABEL_CACHE[text];
+
   const spots = {};
   for (let r = 0; r < GEO.rows; r++) {
     for (let c = 0; c < GEO.cols; c++) {
       const ch = GRID[r][c];
-      (spots[ch] = spots[ch] || []).push({ pos: r * GEO.cols + c, led: xyToIndex(r, c) });
+      (spots[ch] = spots[ch] || []).push([r, c]);
     }
   }
+  if (!text.split("").every(ch => spots[ch])) {           // 有字母不在板上 → 走旧启发式
+    LABEL_CACHE[text] = [];
+    return [];
+  }
+
+  // 穷举（标签 ≤ 5 字母、每个字母 ≤ 11 处）：找"列→严格单调"的最紧摆位，
+  // 没有就找"行↓严格单调"的。跨度优先，其次总路径，保证字母挨得近。
+  let best = null, bestScore = Infinity;
   const n = text.length;
-  const out = [], used = new Set();
-  let prevPos = -1;
-  for (let k = 0; k < n; k++) {
-    const all = (spots[text[k]] || []).filter(o => !used.has(o.led));
-    const target = ((k + 0.5) / n) * (GEO.cols * GEO.rows);
-    const ahead = all.filter(o => o.pos > prevPos);
-    const pickFrom = ahead.length ? ahead : all;      // 没有更靠后的了 → 允许回绕
-    let best = null, bestD = Infinity;
-    for (const o of pickFrom) {
-      const d = Math.abs(o.pos - target);
-      if (d < bestD) { bestD = d; best = o; }
+  const pick = (k, acc, used) => {
+    if (k === n) {
+      const cols = acc.map(p => p[1]);
+      const rows = acc.map(p => p[0]);
+      const incC = cols.every((v, i) => i === 0 || v > cols[i - 1]);
+      const incR = rows.every((v, i) => i === 0 || v > rows[i - 1]);
+      const rank = incC ? 0 : (incR ? 1 : 9);
+      if (rank === 9) return;
+      const bw = Math.max(...cols) - Math.min(...cols);
+      const bh = Math.max(...rows) - Math.min(...rows);
+      const path = acc.reduce((a, p, i) => i ? a + Math.abs(p[0] - acc[i - 1][0]) + Math.abs(p[1] - acc[i - 1][1]) : a, 0);
+      const score = rank * 1000 + bw * bh * 10 + bh + path;
+      if (score < bestScore) { bestScore = score; best = acc.slice(); }
+      return;
     }
-    if (!best) continue;
-    out.push(best.led); used.add(best.led); prevPos = best.pos;
-  }
-  LABEL_CACHE[text] = out;
-  return out;
+    for (const [r, c] of spots[text[k]]) {
+      const key = r * GEO.cols + c;
+      if (used.has(key)) continue;
+      used.add(key); acc.push([r, c]);
+      pick(k + 1, acc, used);
+      acc.pop(); used.delete(key);
+    }
+  };
+  pick(0, [], new Set());
+
+  const cells = (best || []).map(([r, c]) => xyToIndex(r, c));
+  LABEL_CACHE[text] = cells;
+  return cells;
 }
 
 /* 字母 → 格子：每个字符在字母阵里挑一格或多格。
@@ -900,15 +963,15 @@ const THEME_DESC = {
       ntp_syncing:         { stars: { rate: 1.1 }, mods: [
                                // 标签写死成紧凑的一簇（跨度 2×5），一眼能读出 SYNC
                                { gen: "label", text: "SYNC", mode: "progress", progress: "demo", demo: 6,
-                                 dots: true, peak: 0.55, cells: [[0,6],[2,5],[2,3],[1,1]] }] },
+                                 dots: true, peak: 0.55, cells: [[3,4],[2,5],[3,7],[1,10]] }] },
       running:             { stars: {}, text: true },
       minute_change:       { stars: {}, text: true, mods: [{ gen: "tick", dur: 0.14, peak: 0.45 }] },
       ota_download:        { stars: { rate: 1.1 }, mods: [
                                { gen: "label", text: "OTA", mode: "progress", progress: "demo", demo: 14,
-                                 dots: true, peak: 0.60, cells: [[5,0],[4,3],[4,1]] }] },
+                                 dots: true, peak: 0.60, cells: [[6,1],[4,3],[1,4]] }] },
       ota_apply:           { stars: {}, mods: [
                                { gen: "label", text: "OTA", mode: "progress", progress: 1, peak: 0.60,
-                                 cells: [[5,0],[4,3],[4,1]] },
+                                 cells: [[6,1],[4,3],[1,4]] },
                                { gen: "band", axis: "diagr", period: 2.4, width: 1.6, peak: 0.22 }] },
       // 错误语义用"还能不能报时"来表达（比任何标签都直观）：
       //   网络断了 → 时间照常显示但明显降级（暗 50%、偏暖）+ 一颗角点缓慢搏动
@@ -917,10 +980,10 @@ const THEME_DESC = {
       // 再用 NET 慢速点名（低亮度、长间隔）告诉你"是网络这块"。
       error_network:       { stars: { rate: 0.12, peakMul: 0.26, hue: 1 }, text: true, textLevel: 0.50, textTint: 3,
                              mods: [{ gen: "label", text: "NET", mode: "blink", period: 6, sharp: 4, peak: 0.42, tint: 3,
-                                      cells: [[2,3],[3,6],[2,4]] }] },
+                                      cells: [[5,1],[5,2],[4,3]] }] },
       error_time:          { stars: { rate: 0.10, peakMul: 0.22, hue: 1 }, mods: [
                                { gen: "label", text: "TIME", mode: "blink", period: 6, peak: 0.55, sharp: 3, tint: 3,
-                                 cells: [[1,6],[2,7],[0,8],[1,7]] }] },
+                                 cells: [[1,6],[2,7],[0,8],[2,9]] }] },
       factory_reset:       { stars: { fall: true } },
       deep_night:          { stars: { peakMul: 0.75 } },
       apply_config:        { stars: { rate: 0.6 }, mods: [
@@ -1495,6 +1558,20 @@ function renderMod(g, idx, mods) {
   blend.value = g.blend || GDEF[g.gen].blend || "max";
   blend.addEventListener("change", () => { g.blend = blend.value; syncJson(); });
   card.appendChild(kv("混合", blend));
+  // 单向性体检：可读性的硬约束，直接显示出来
+  if (g.gen === "label" || g.gen === "spell") {
+    const cells = cellsOf(g) || (g.gen === "label" ? resolveLabel((g.text || "").toUpperCase()) : resolveSpelling((g.letters || "").toUpperCase(), gp(g, "spread") || 3));
+    const natural = g.gen === "label";
+    const info = monotonicInfo(cells, natural);
+    const mode = g.mode || (g.gen === "progress" ? "progress" : "progress");
+    const temporal = (g.mode === "sequence") || (g.gen === "label" && g.mode !== "blink" && !info.dir);
+    const txt = temporal
+      ? "⚠ 空间无单向性 → 已改用时序单向性（逐个渐亮渐隐）"
+      : `单向性 ${info.dir || "—"} · 跨度 ${info.bbox[0]}×${info.bbox[1]}`;
+    const hint = el("div", "hint", txt);
+    if (!temporal && !info.dir) hint.style.color = "#c45c26";
+    card.appendChild(hint);
+  }
   return card;
 }
 
