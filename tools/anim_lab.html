@@ -432,7 +432,13 @@ let SIM_TINT = new Uint8Array(TOTAL);
 const clamp01 = (x) => x < 0 ? 0 : x > 1 ? 1 : x;
 const smooth = (x) => { const t = clamp01(x); return t * t * (3 - 2 * t); };
 const gauss = (d, w) => Math.exp(-(d * d) / (w * w));
-const ledRC = (led) => [Math.floor(led / GEO.cols), led % GEO.cols];
+// 蛇形走线的**逆映射**：奇数行的物理列是反的。
+// 少了这一步，"按行列距离"的逻辑（风的方向、标签选格、拼写连线）会整行镜像。
+const ledRC = (led) => {
+  const row = Math.floor(led / GEO.cols);
+  const raw = led % GEO.cols;
+  return [row, row % 2 === 0 ? raw : GEO.cols - 1 - raw];
+};
 
 // 叠加：add / max / mul
 function put(i, a, blend, tint) {
@@ -491,7 +497,11 @@ function genStars(ov, t) {
       pm *= lo + (1 - lo) * gauss(pos - crest, wid);
     }
     if (k / n > gate) pm = 0;
-    if (fallP != null && st.led / LETTER_LEDS < fallP * 1.1) pm = 0;
+    if (fallP != null) {
+      // 按**阅读顺序**熄灭（行主序），所以最后熄灭的是右下角最后一格 K
+      const [rr, cc] = ledRC(st.led);
+      if ((rr * GEO.cols + cc) / LETTER_LEDS < fallP * 1.1) pm = 0;
+    }
 
     let u = ((tt / st.period) + st.phase) % 1;
     if (ov.cohere) u += (0.5 - u) * ov.cohere;
@@ -651,7 +661,7 @@ const GEN = {
   label(g, t) {
     const text = (g.text || "").toUpperCase().replace(/[^A-Z]/g, "");
     if (!text) return;
-    const cells = resolveSpelling(text, gp(g, "spread"));
+    const cells = resolveLabel(text);
     const peak = gp(g, "peak"), mode = gp(g, "mode");
 
     if (mode === "blink") {
@@ -680,6 +690,41 @@ const GEN = {
     }
   },
 };
+
+/* 标签选格（label 用）：**按阅读顺序、均匀铺开**。
+   为什么不用 spell 的"最近邻连线"：那样 NET 会被选成 (9,2)N→(9,1)E→(9,0)T，
+   空间上连成 "TEN"，读起来是反的假词。改成"每个字母落在它该在的 1/n 位置
+   附近、且位置严格递增"后，三个字母散落在面板上，大脑才会把它们当成
+   离散的字母点去组词（OTA / SYNC / NET / TIME 都是这么读的）。 */
+const LABEL_CACHE = {};
+function resolveLabel(text) {
+  if (LABEL_CACHE[text]) return LABEL_CACHE[text];
+  const spots = {};
+  for (let r = 0; r < GEO.rows; r++) {
+    for (let c = 0; c < GEO.cols; c++) {
+      const ch = GRID[r][c];
+      (spots[ch] = spots[ch] || []).push({ pos: r * GEO.cols + c, led: xyToIndex(r, c) });
+    }
+  }
+  const n = text.length;
+  const out = [], used = new Set();
+  let prevPos = -1;
+  for (let k = 0; k < n; k++) {
+    const all = (spots[text[k]] || []).filter(o => !used.has(o.led));
+    const target = ((k + 0.5) / n) * (GEO.cols * GEO.rows);
+    const ahead = all.filter(o => o.pos > prevPos);
+    const pickFrom = ahead.length ? ahead : all;      // 没有更靠后的了 → 允许回绕
+    let best = null, bestD = Infinity;
+    for (const o of pickFrom) {
+      const d = Math.abs(o.pos - target);
+      if (d < bestD) { bestD = d; best = o; }
+    }
+    if (!best) continue;
+    out.push(best.led); used.add(best.led); prevPos = best.pos;
+  }
+  LABEL_CACHE[text] = out;
+  return out;
+}
 
 /* 字母 → 格子：每个字符在字母阵里挑一格或多格。
    规则（为了让散落感像星空而不是写字）：
@@ -831,7 +876,7 @@ const THEME_DESC = {
       boot:                { stars: { rate: 1.8, peakMul: 0.30 }, mods: [
                                { gen: "band", axis: "diagr", period: 0.60, width: 1.4, peak: 0.50 },
                                { gen: "spell", letters: "KLARA", delay: 0.45, step: 0.34,
-                                 fade: 0.45, persist: 1.0, spread: 3, peak: 0.95 }] },
+                                 fade: 0.45, persist: 1.0, spread: 6, peak: 0.95 }] },
       ap_start:            { stars: {}, mods: [{ gen: "chase", step: 0.9, peak: 0.35 }] },
       // 尝试连接：v1 的横向扫带（实测最能表达"在往前走"）
       wifi_connecting:     { stars: {}, mods: [{ gen: "band", axis: "x", period: 4.5, width: 2.0, peak: 0.42 }] },
@@ -839,7 +884,8 @@ const THEME_DESC = {
       provisioning_wait:   { stars: { rate: 0.9, tide: { period: 26, lo: 0.25 } },
                              mods: [{ gen: "chase", step: 0.9, peak: 0.30 }] },
       // 有人连上了：v1 的涟漪（事件确认，实测优秀）
-      provisioning_client: { stars: {}, mods: [{ gen: "ripple", origin: [9, 0], dur: 1.0, peak: 0.32 }] },
+      // 有人连上了：涟漪从 K(9,10) 扩散 —— "K 是这盏钟的我"，事件从我这里荡开
+      provisioning_client: { stars: {}, mods: [{ gen: "ripple", origin: [9, 10], dur: 1.0, peak: 0.34 }] },
       // 校时：标签 SYNC 按进度累计点亮（语义：在同步，而不是"加载中"）
       // 校时 / OTA：同一套"进度"动效（标签累计点亮 + 四角点当刻度），只有标签不同
       ntp_syncing:         { stars: { rate: 1.1 }, mods: [
@@ -856,8 +902,10 @@ const THEME_DESC = {
       // 错误语义用"还能不能报时"来表达（比任何标签都直观）：
       //   网络断了 → 时间照常显示但明显降级（暗 50%、偏暖）+ 一颗角点缓慢搏动
       //   时间未知 → 根本不给时间，只有 TIME 闪烁 = "我不知道现在几点"
+      // 网络错误：时间**照常可读**（断网不该让钟变瞎），只是降级为 50% 亮度 + 偏暖，
+      // 再用 NET 慢速点名（低亮度、长间隔）告诉你"是网络这块"。
       error_network:       { stars: { rate: 0.12, peakMul: 0.26, hue: 1 }, text: true, textLevel: 0.50, textTint: 3,
-                             mods: [{ gen: "dotPulse", dots: [0], period: 3.4, peak: 0.55, base: 0.05, tint: 3 }] },
+                             mods: [{ gen: "label", text: "NET", mode: "blink", period: 6, sharp: 4, peak: 0.42, tint: 3 }] },
       error_time:          { stars: { rate: 0.10, peakMul: 0.22, hue: 1 }, mods: [
                                { gen: "label", text: "TIME", mode: "blink", period: 6, peak: 0.55, sharp: 3, tint: 3 }] },
       factory_reset:       { stars: { fall: true } },
