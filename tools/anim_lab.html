@@ -409,6 +409,7 @@ const CANON = [
   ["boot",                 "启动自检"],
   ["ap_start",             "热点启动"],
   ["wifi_connecting",      "WiFi 连接中"],
+  ["wifi_scanning",        "WiFi 扫描中"],
   ["provisioning_wait",    "等待配置"],
   ["provisioning_client",  "客户端已连入"],
   ["ntp_syncing",          "NTP 同步中"],
@@ -939,6 +940,7 @@ const THEME_DESC = {
                                  fade: 0.50, hold: 0.70, fadeOut: 0.55, spread: 3, peak: 0.95 }] },
       ap_start:            { stars: { rate: 1.4 } },
       wifi_connecting:     { stars: { rate: 1.2, wind: { axis: "x", period: 5.5, width: 0.20, floor: 0.30 } } },
+      wifi_scanning:       { stars: { rate: 1.6 }, mods: [{ gen: "band", axis: "y", period: 0.5, width: 1.2, peak: 0.40 }] },
       provisioning_wait:   { stars: { rate: 0.9, tide: { period: 26, lo: 0.22 } } },
       provisioning_client: { stars: {}, mods: [{ gen: "meteor", every: 1.8, dur: 1.1, tail: 4.6, peak: 0.75 }] },
       ntp_syncing:         { stars: { rate: 1.35, cohere: 0.55, wind: { axis: "y", period: 3.2, width: 0.16, floor: 0.35 } } },
@@ -966,12 +968,21 @@ const THEME_DESC = {
                                { gen: "spell", letters: "KLARA", delay: 0.45, step: 0.34, fade: 0.45,
                                  persist: 1.0, peak: 0.95,
                                  cells: [[9,10],[7,6],[4,1],[1,5],[0,5]] }] },
-      ap_start:            { stars: {}, mods: [{ gen: "chase", step: 0.9, peak: 0.35 }] },
-      // 尝试连接：v1 的横向扫带（实测最能表达"在往前走"）
-      wifi_connecting:     { stars: {}, mods: [{ gen: "band", axis: "x", period: 4.5, width: 2.0, peak: 0.42 }] },
-      // 等你操作：潮汐（人的节奏）+ 四角点 chase（"轮到你了"）
+      // AP：热点就绪（AP 两个字母在板上相邻，跨度 0×2，最紧的一对）
+      ap_start:            { stars: {}, mods: [
+                               { gen: "label", text: "AP", mode: "blink", period: 3.2, sharp: 3, peak: 0.55,
+                                 cells: [[0,7],[0,9]] }] },
+      // 连接中：点名 WIFI（慢速同步闪），比扫带更直接说明"卡在哪一步"
+      wifi_connecting:     { stars: {}, mods: [
+                               { gen: "label", text: "WIFI", mode: "blink", period: 4.5, sharp: 3, peak: 0.55,
+                                 cells: [[2,1],[0,3],[2,6],[2,7]] }] },
+      // 扫描信道：SCAN 在板上排不出可读阵型（最紧 9×5），所以改用**运动**表达：
+      // 一次纵向快扫 0.45s，连扫几轮 = 在逐条信道找。
+      wifi_scanning:       { stars: {}, mods: [{ gen: "band", axis: "y", period: 0.45, width: 1.2, peak: 0.45 }] },
+      // 等你操作：潮汐（人的节奏）+ WAIT 点名（慢，不催）
       provisioning_wait:   { stars: { rate: 0.9, tide: { period: 26, lo: 0.25 } },
-                             mods: [{ gen: "chase", step: 0.9, peak: 0.30 }] },
+                             mods: [{ gen: "label", text: "WAIT", mode: "blink", period: 5.5, sharp: 3, peak: 0.5,
+                                      cells: [[2,1],[1,4],[2,7],[3,9]] }] },
       // 有人连上了：v1 的涟漪（事件确认，实测优秀）
       // 有人连上了：涟漪从 K(9,10) 扩散 —— "K 是这盏钟的我"，事件从我这里荡开
       provisioning_client: { stars: {}, mods: [{ gen: "ripple", origin: [9, 10], dur: 1.0, peak: 0.34 }] },
@@ -1020,6 +1031,7 @@ const THEME_DESC = {
                                  fade: 0.50, hold: 0.70, fadeOut: 0.55, spread: 3, peak: 0.95 }] },
       ap_start:            { stars: {} },
       wifi_connecting:     { stars: {}, mods: [{ gen: "band", axis: "x", period: 5.5, width: 2.2, peak: 0.40 }] },
+      wifi_scanning:       { stars: {}, mods: [{ gen: "band", axis: "y", period: 0.5, width: 1.2, peak: 0.40 }] },
       provisioning_wait:   { stars: {}, mods: [{ gen: "ignite", step: 0.7, fade: 2.4, max: 30, peak: 0.30 }] },
       provisioning_client: { stars: {}, mods: [{ gen: "ripple", origin: [9, 0], dur: 0.9, peak: 0.28 }] },
       ntp_syncing:         { stars: {}, mods: [{ gen: "fillRow", progress: "demo", peak: 0.50 }] },
@@ -1291,8 +1303,8 @@ ui.scrub.addEventListener("input", (e) => { t = parseFloat(e.target.value); });
 
 /* ---- 主题切换：状态列表是固定的（CANON），切主题只换描述符 ---- */
 const SHOWS = {
-  merged: [["boot", 4], ["ap_start", 3], ["provisioning_wait", 8], ["provisioning_client", 3],
-           ["wifi_connecting", 8], ["ntp_syncing", 6], ["running", 8], ["minute_change", 3],
+  merged: [["boot", 4], ["ap_start", 3], ["wifi_scanning", 3], ["provisioning_wait", 8],
+           ["provisioning_client", 3], ["wifi_connecting", 8], ["ntp_syncing", 6], ["running", 8], ["minute_change", 3],
            ["ota_download", 8], ["error_network", 6], ["error_time", 6], ["factory_reset", 4], ["running", 5]],
   stars:  [["deep_night", 8], ["wifi_connecting", 9], ["provisioning_wait", 10],
            ["provisioning_client", 3], ["ntp_syncing", 5], ["running", 8],
