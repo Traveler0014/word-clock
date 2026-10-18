@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>字钟点阵调试</title>
+<style>
+  :root {
+    --bg: #14161a; --fg: #e6e8ee; --dim: #7b8494; --line: #2a2f38;
+    --exp: #4a9eff; --obs: #35d17a; --both: #ffd166;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 18px 22px 40px; background: var(--bg); color: var(--fg);
+    font: 14px/1.45 -apple-system, "Segoe UI", "Noto Sans SC", sans-serif;
+    user-select: none;
+  }
+  h1 { font-size: 17px; margin: 0 0 12px; font-weight: 600; }
+  .bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 14px; }
+  .bar label { color: var(--dim); }
+  input[type=time] {
+    background: #1d2129; color: var(--fg); border: 1px solid var(--line);
+    border-radius: 6px; padding: 5px 8px; font-size: 14px;
+  }
+  button {
+    background: #232833; color: var(--fg); border: 1px solid var(--line);
+    border-radius: 6px; padding: 6px 12px; font-size: 13px; cursor: pointer;
+  }
+  button:hover { background: #2d3440; }
+  button.primary { background: #2b5fa8; border-color: #3a7bd5; }
+  button.primary:hover { background: #3570c0; }
+  .layout { display: flex; gap: 26px; flex-wrap: wrap; align-items: flex-start; }
+  table.grid { border-collapse: separate; border-spacing: 5px; }
+  table.grid td {
+    width: 58px; height: 58px; text-align: center; vertical-align: middle;
+    border: 2px solid var(--line); border-radius: 9px; background: #1a1e25;
+    position: relative; cursor: pointer; font-size: 22px; font-weight: 600;
+    color: #4c5563; transition: background .08s, border-color .08s, color .08s;
+  }
+  table.grid td .idx {
+    position: absolute; left: 4px; top: 2px; font-size: 9px; font-weight: 400;
+    color: #49515e;
+  }
+  table.grid td.expected { border-color: var(--exp); color: #9dc6ff; }
+  table.grid td.observed { background: #14432b; border-color: var(--obs); color: #7ff0b0; }
+  table.grid td.observed.expected { background: #4a4215; border-color: var(--both); color: #ffe28a; }
+  .dots { display: flex; gap: 10px; margin-top: 12px; align-items: center; }
+  .dots .lbl { color: var(--dim); font-size: 13px; }
+  .dot {
+    width: 46px; height: 46px; border-radius: 50%; border: 2px solid var(--line);
+    background: #1a1e25; display: flex; align-items: center; justify-content: center;
+    font-size: 12px; color: #4c5563; cursor: pointer; position: relative;
+  }
+  .dot.expected { border-color: var(--exp); color: #9dc6ff; }
+  .dot.observed { background: #14432b; border-color: var(--obs); color: #7ff0b0; }
+  .dot.observed.expected { background: #4a4215; border-color: var(--both); color: #ffe28a; }
+  .side { min-width: 320px; flex: 1; }
+  .card {
+    background: #1a1e25; border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 14px; margin-bottom: 14px;
+  }
+  .card h2 { font-size: 13px; margin: 0 0 8px; color: var(--dim); font-weight: 500; }
+  .words { font-size: 15px; letter-spacing: .5px; }
+  .words b { color: var(--both); }
+  .strip { display: grid; grid-template-columns: repeat(19, 1fr); gap: 3px; }
+  .strip i {
+    display: block; height: 14px; border-radius: 2px; background: #22262e;
+    border: 1px solid #2a2f38; font-style: normal;
+  }
+  .strip i.expected { border-color: var(--exp); background: #1b2b40; }
+  .strip i.observed { background: var(--obs); }
+  .strip i.observed.expected { background: var(--both); }
+  .legend { display: flex; gap: 14px; font-size: 12px; color: var(--dim); margin-top: 8px; }
+  .legend span::before {
+    content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px;
+    margin-right: 5px; vertical-align: -1px;
+  }
+  .legend .e::before { border: 1px solid var(--exp); background: #1b2b40; }
+  .legend .o::before { background: var(--obs); }
+  .legend .b::before { background: var(--both); }
+  pre { margin: 0; white-space: pre-wrap; font-size: 12px; color: #b9c2d0; }
+  .rank { font-size: 12px; }
+  .rank div { padding: 3px 0; border-bottom: 1px solid #232833; }
+  .rank .best { color: var(--obs); font-weight: 600; }
+  .hint { color: var(--dim); font-size: 12px; margin-top: 6px; }
+</style>
+</head>
+<body>
+<h1>字钟点阵调试 — 点选实物上真正亮起的格子</h1>
+
+<div class="bar">
+  <label>时刻</label>
+  <input type="time" id="at">
+  <label style="display:flex;align-items:center;gap:6px;color:var(--fg)">
+    <input type="checkbox" id="follow" checked> 跟随系统时间
+  </label>
+  <button id="nowBtn">用当前时间</button>
+  <button id="clearBtn">清空观测</button>
+  <button id="copyExpBtn">观测 = 期望</button>
+  <button id="submitBtn" class="primary">提交观测</button>
+  <button id="exportBtn">导出 JSON</button>
+  <span id="status" class="hint"></span>
+</div>
+
+<div class="layout">
+  <div>
+    <table class="grid" id="grid"></table>
+    <div class="dots" id="dots"><span class="lbl">角点</span></div>
+  </div>
+
+  <div class="side">
+    <div class="card">
+      <h2>该时刻固件应显示</h2>
+      <div class="words" id="words">—</div>
+      <div class="hint" id="marksInfo"></div>
+      <div class="legend">
+        <span class="e">期望亮</span><span class="o">你标记的实测亮</span><span class="b">两者都有</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>索引条带视图（0 → 113，按数据链顺序）</h2>
+      <div class="strip" id="strip"></div>
+      <div class="hint">整体右移 / 左移 / 反向 ⇒ 数据链起点或走线方向问题</div>
+    </div>
+
+    <div class="card">
+      <h2>服务端分析（提交后）</h2>
+      <div class="rank" id="rank"><pre>标完格子点「提交观测」</pre></div>
+      <textarea id="fallback" style="display:none;width:100%;height:120px;margin-top:10px;
+        background:#12151a;color:#b9c2d0;border:1px solid var(--line);border-radius:6px;
+        font:12px/1.4 monospace;padding:8px;"></textarea>
+    </div>
+  </div>
+</div>
+
+<script>
+const state = { cols: 11, rows: 10, letters: 110, total: 114,
+                grid: [], expected: [], observed: [], at: null, follow: true };
+
+const el = (id) => document.getElementById(id);
+
+// 蛇形走线：偶数行左→右，奇数行右→左（与 firmware xy_to_index 一致）
+function cellIndex(r, c) {
+  return r * state.cols + (r % 2 === 0 ? c : state.cols - 1 - c);
+}
+
+async function loadFrame(at) {
+  const q = at ? `?at=${encodeURIComponent(at)}` : "";
+  const res = await fetch("/api/frame" + q);
+  const j = await res.json();
+  Object.assign(state, {
+    cols: j.cols, rows: j.rows, letters: j.letters, total: j.total,
+    grid: j.grid, expected: j.expected, at: j.at,
+  });
+  el("at").value = j.at;
+  el("words").innerHTML = `<b>${j.at}</b> · ` + j.words.join(" · ");
+  el("status").textContent = `服务端时间 ${j.serverTime}`;
+  // 必须是稠密数组：稀疏数组 JSON.stringify 后长度是 max(index)+1，不是 114
+  state.observed = new Array(j.total).fill(false);
+  restore(); // 同一分钟内刷新页面/服务重启，草稿还能捡回来
+  render();
+}
+
+function render() {
+  const g = el("grid");
+  g.innerHTML = "";
+  for (let r = 0; r < state.rows; r++) {
+    const tr = document.createElement("tr");
+    for (let c = 0; c < state.cols; c++) {
+      const i = cellIndex(r, c);
+      const td = document.createElement("td");
+      td.title = `LED ${i} · 行${r} 列${c}`;
+      td.dataset.i = i;
+      td.innerHTML = `<span class="idx">${i}</span>${state.grid[r][c]}`;
+      if (state.expected[i]) td.classList.add("expected");
+      if (state.observed[i]) td.classList.add("observed");
+      tr.appendChild(td);
+    }
+    g.appendChild(tr);
+  }
+  const d = el("dots");
+  d.querySelectorAll(".dot").forEach((n) => n.remove());
+  for (let k = 0; k < 4; k++) {
+    const i = state.letters + k;
+    const n = document.createElement("div");
+    n.className = "dot";
+    n.dataset.i = i;
+    n.textContent = i;
+    if (state.expected[i]) n.classList.add("expected");
+    if (state.observed[i]) n.classList.add("observed");
+    d.appendChild(n);
+  }
+  const s = el("strip");
+  s.innerHTML = "";
+  for (let i = 0; i < state.total; i++) {
+    const n = document.createElement("i");
+    if (state.expected[i]) n.classList.add("expected");
+    if (state.observed[i]) n.classList.add("observed");
+    n.title = `LED ${i}`;
+    s.appendChild(n);
+  }
+  updateMarksInfo();
+}
+
+// 标记永远归属于“当前显示的时刻”，提交即用该时刻，不做额外的时间绑定。
+// 分钟一变就重置标记（见 tick()），所以不会出现“标记与实际亮灯不属于同一时刻”的情况；
+// 需要声明其它时刻的话，取消自动跟随并手动指定时刻即可。
+function updateMarksInfo() {
+  const box = el("marksInfo");
+  const n = state.observed.filter(Boolean).length;
+  box.innerHTML = n ? `当前时刻 <b>${state.at}</b> · 已标 ${n} 颗` : "";
+}
+
+// 支持拖动连续点选
+let painting = null;
+function paint(n, on) {
+  const i = Number(n.dataset.i);
+  state.observed[i] = on;
+  n.classList.toggle("observed", on);
+  const strip = el("strip").children[i];
+  if (strip) strip.classList.toggle("observed", on);
+  persist();
+  updateMarksInfo();
+}
+
+// 本地草稿：同一分钟内刷新/服务重启都不丢标记
+function persistKey() { return "wc-obs-" + state.at; }
+function persist() {
+  try { localStorage.setItem(persistKey(), JSON.stringify(state.observed)); } catch (e) {}
+}
+function restore() {
+  // 只恢复“当前这一分钟”的草稿
+  try {
+    const raw = localStorage.getItem("wc-obs-" + state.at);
+    if (!raw) return;
+    const saved = JSON.parse(raw);
+    const dense = new Array(state.total).fill(false);
+    for (let i = 0; i < state.total; i++) dense[i] = !!saved[i];
+    state.observed = dense;
+  } catch (e) {}
+}
+function payload() {
+  // 以“当前显示时刻”为准：自动跟随时它就是提交那一刻的面板时刻；
+  // 手动指定时刻时就是用户声明的那个时刻。
+  return { at: state.at, observed: state.observed };
+}
+function showFallback(text) {
+  const t = el("fallback");
+  t.style.display = "block";
+  t.value = text;
+  t.select();
+}
+document.addEventListener("mousedown", (e) => {
+  const n = e.target.closest("[data-i]");
+  if (!n) return;
+  const i = Number(n.dataset.i);
+  painting = !state.observed[i];
+  paint(n, painting);
+  e.preventDefault();
+});
+document.addEventListener("mouseover", (e) => {
+  if (painting === null) return;
+  const n = e.target.closest("[data-i]");
+  if (n) paint(n, painting);
+});
+document.addEventListener("mouseup", () => { painting = null; });
+
+el("nowBtn").onclick = () => { el("follow").checked = false; loadFrame(null); };
+el("at").onchange = () => { el("follow").checked = false; loadFrame(el("at").value); };
+el("follow").onchange = () => { if (el("follow").checked) loadFrame(null); };
+el("clearBtn").onclick = () => {
+  state.observed = new Array(state.total).fill(false);
+  persist(); render();
+};
+el("copyExpBtn").onclick = () => {
+  state.observed = state.expected.slice();
+  persist(); render();
+};
+
+// 自动跟随系统时间：每 2s 问一次服务端。分钟一变，期望图案和标记一起重置
+// —— 面板已经换了内容，旧标记本来就不再成立（要回溯就取消跟随、手动指定时刻）。
+async function tick() {
+  if (!el("follow").checked) return;
+  try {
+    const res = await fetch("/api/frame");
+    const j = await res.json();
+    if (j.at !== state.at) {
+      await loadFrame(null);
+      el("status").textContent = `面板已到 ${j.at}，标记已重置 —— 请按当前面板重新标记`;
+      state.noticeUntil = Date.now() + 8000; // 提示留 8s，别被下一个 tick 覆盖
+    } else if (Date.now() > (state.noticeUntil || 0)) {
+      el("status").textContent = `服务端时间 ${j.serverTime}`;
+    }
+  } catch (e) { /* 服务重启中，下个 tick 再试 */ }
+}
+setInterval(tick, 2000);
+
+el("submitBtn").onclick = async () => {
+  el("status").textContent = "提交中…";
+  try {
+    const res = await fetch("/api/report", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload()),
+    });
+    const j = await res.json();
+    if (j.error) { el("status").textContent = j.error; return; }
+    el("status").textContent = `已保存 ${j.saved}`;
+    const rows = j.ranking.map((r) => {
+      const label = `${r.mode} shift=${r.shift >= 0 ? "+" : ""}${r.shift}`;
+      return `<div class="${r.ok ? "best" : ""}">${r.ok ? "✓ " : ""}${label} — 错 ${r.wrong} 格</div>`;
+    }).join("");
+    el("rank").innerHTML =
+      `<pre>期望 ${j.expectedCount} 格 / 实测 ${j.observedCount} 格</pre>` + rows;
+  } catch (e) {
+    // 服务没起来 / 正好在重启：不丢数据，把 JSON 摊出来可直接粘给 AI
+    el("status").textContent = "提交失败（服务不可达），已生成 JSON，请粘贴给 AI";
+    showFallback(JSON.stringify(payload()));
+  }
+};
+
+el("exportBtn").onclick = () => showFallback(JSON.stringify(payload()));
+
+loadFrame(null);
+</script>
+</body>
+</html>

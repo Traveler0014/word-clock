@@ -41,11 +41,12 @@ cd firmware && source env.sh
 # 逻辑层单元测试（宿主机，改 wordclock-core 后必跑）
 cargo test -p wordclock-core --target x86_64-unknown-linux-gnu
 
-# 编译（WiFi 凭据是编译期环境变量，改凭据必须重新 build）
-WIFI_SSID=xxx WIFI_PASSWORD=yyy cargo build -p word-clock
+# 编译（不需要 WiFi 凭据：凭据只存 NVS，由配网页面写入）
+cargo build -p word-clock
 
-# 烧录（走 USB-JTAG 口；先完成上面的进下载模式操作）
-espflash flash target/riscv32imac-esp-espidf/debug/word-clock --port /dev/ttyACM1
+# 烧录（走 USB-JTAG 口，端口按 VID:PID 核对：303a:1001=JTAG / 1a86:55d3=UART）
+# 2026-10 实测：espflash 自动复位可用，**不需要**手动 BOOT+RESET
+espflash flash target/riscv32imac-esp-espidf/debug/word-clock --port /dev/ttyACM0
 
 # 日志（UART 口，开发期常驻；dtr/rts 必须 False，原因见下）
 python3 tools/uart_sniff.py
@@ -68,5 +69,18 @@ python3 tools/uart_sniff.py
 | 周期性 LED 自检循环闪 | app 返回 Err → IDF 重启循环 | `app/src/main.rs` 重试逻辑注释 |
 | Stack protection fault | 主任务栈默认 3584 太小 | `app/sdkconfig.defaults` 注释 |
 | 烧完不跑 / 日志静默 | 监听拉住 DTR/RTS → 摁进下载模式 | `tools/uart_sniff.py` 头部注释 |
+| **字钟显示花屏/缺字母/后段全白或全黑，且图案每次不同** | vendor ws2812 驱动走 `start_iter_blocking`：在 RMT 中断里跑 Rust 迭代器喂数据，WiFi 抢占 → 供数欠载 → WS2812 提前锁存 | `app/src/leddrv.rs` 文件头；已改为预编码 + `start_blocking`（`rmt_write_items`），`mem_block_num` 1→4 |
+| 自检全屏都变色，但字钟帧是错的 | 自检只验证电气连通，不验证位流 → 不能用来排除丢位 | 用 `--features diag` 静态标尺固件验证映射 |
+| 进配网模式就重启（`Stack protection fault`, task "main"） | `scan_n::<20>()` 的 `heapless::Vec` 放栈上，debug 构建下直接打爆主任务栈 | `wifi::scan()` 已改为 `scan_n::<8>()`，主任务栈提到 32768 |
+| 配网页打不开 `192.168.4.1` | IDF 默认 AP 网段不一定是 192.168.4.0/24（本机实测 192.168.71.1） | `start_ap()` 从 `ap_netif().get_ip_info()` 动态取并打进日志 |
+| 烧完 WiFi 连不上、行为像旧密码 | 凭据只存 NVS，与固件版本无关；重新配网/恢复出厂即可 | `app/src/creds.rs` 文件头 |
+| 手机看不到配网热点 / 连上又掉 | APSTA 下扫描时 AP 必须离开信道，beacon 中断。周期扫描等于让 AP 反复消失 | 改为「进配网扫一次 + 页面按需 `/api/scan`」，扫描驻留 60~90ms（`wifi::scan`） |
+| 配网热点连上了、有租约，但系统不弹登录页 | DHCP 广播的 DNS 不是设备自己 → 客户端连探测请求都发不出（日志里 0 条 DNS 查询）。`esp_netif_dhcps_option(DOMAIN_NAME_SERVER)` 期望**单字节开关**，不是 4 字节 IP（传 IP 返回 `ESP_ERR_INVALID_PARAMS`） | 用 `esp_netif_set_dns_info(ESP_NETIF_DNS_MAIN)`；`web.rs` 有 DNS 自检（设备向自己 :53 发查询验证应答器） |
+| 改 AP 地址后 `dhcps: Illegal subnet mask` + panic | `esp_ip4_addr_t.addr` 是**网络字节序**，用 `(a<<24)\u{7c}…` 拼在 LE 芯片上会反序 | 用 `u32::from_ne_bytes([a,b,c,d])`（`wifi.rs` 注释） |
+| 起 DNS 线程即 `Stack protection fault` | IDF 的 pthread 默认栈仅 ~3KB，`std::net` 初始化就爆 | `thread::Builder::stack_size(8192)` + `CONFIG_PTHREAD_TASK_STACK_SIZE_DEFAULT=8192` |
+| 管理页选中的选项 1~2 秒后被刷回设备当前值 | 轮询 `/api/info` 时无条件重新拉 `/api/settings`，覆盖了未保存的表单 | 页面加 `dirty` 标记：有未保存改动时轮询不覆盖；保存成功才清标记 |
+| 管理页点「保存」无反应/整站卡死 | 在 HTTP handler 里直接操作 WiFi 或写 NVS，阻塞了 esp_http_server 的事件任务 | handler 只改共享状态，由主循环落盘/重启（`app/src/web.rs` 头注释） |
+| 运行模式要扫 WiFi | STA 已连时扫描会让主页断线 1~2s | 运行模式不提供扫描，只允许手填 SSID（`/api/scan` 仅在配网模式注册） |
+| 配网页在墨水屏上重绘闪烁/发灰 | 灰底灰字在 1-bit 屏上会抖成网点，且频繁改 DOM 会整屏重绘 | 页面改二级菜单、只保留两级灰用于非关键信息、DOM 仅在内容变化时更新、`prefers-contrast: more` 时退化为纯黑白 |
 | 日志里看不到 Rust `info!` | Rust log 只走主控制台 | `app/sdkconfig.defaults` 注释 |
 | esp-idf-sys 找不到 sdkconfig.defaults | 需显式指定 | `firmware/.cargo/config.toml` 注释 |
