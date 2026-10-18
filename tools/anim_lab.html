@@ -92,10 +92,21 @@
   .row{display:flex; justify-content:space-between; align-items:center; gap:8px; margin:7px 0}
   .row > span{color:var(--ink2)}
   .row > span b{color:var(--ink); font-weight:400}
-  select{
-    background:transparent; color:var(--ink); border:1px solid var(--ink3);
-    font:inherit; padding:3px 4px;
+  /* 原生 select 在 Windows 上是白底灰字，和深色 UI 打架。自绘： */
+  .selwrap{position:relative; display:inline-flex}
+  .selwrap::after{
+    content:"▾"; position:absolute; right:7px; top:50%; transform:translateY(-50%);
+    color:var(--ink2); pointer-events:none; font-size:10px;
   }
+  select{
+    appearance:none; -webkit-appearance:none; -moz-appearance:none;
+    background:#111; color:var(--ink); border:1px solid var(--ink3);
+    font:inherit; padding:4px 22px 4px 7px; border-radius:0;
+  }
+  select:hover{border-color:var(--ink2)}
+  select:focus{outline:1px solid var(--ink2); outline-offset:0}
+  select option{background:#111; color:var(--ink)}
+  select optgroup{background:#111; color:var(--ink2); font-style:normal}
   .seg{display:flex; gap:0}
   .seg button{border-radius:0; border-right-width:0}
   .seg button:last-child{border-right-width:1px}
@@ -131,31 +142,11 @@
       <button id="play">暂停</button>
       <label>速度 <input type="range" id="speed" min="0.1" max="12" step="0.1" value="1"><b id="speedv">1×</b></label>
       <label>时间 <input type="range" id="scrub" min="0" max="120" step="0.05" value="0"><b id="scrubv">0.0s</b></label>
-      <label>状态 <select id="state">
-        <optgroup label="星空语言（新）">
-          <option value="s_running">运行（星空 + 时间）</option>
-          <option value="s_idle">星空基线</option>
-          <option value="s_connect">尝试连接 · 风</option>
-          <option value="s_portal">等待配置 · 潮汐</option>
-          <option value="s_success">连接成功 · 流星</option>
-          <option value="s_sync">同步 · 同相波</option>
-          <option value="s_ota">升级 · 星等推进</option>
-          <option value="s_error">出错 · 冻结余烬</option>
-          <option value="s_blocked">阻塞 · 停滞</option>
-          <option value="s_reset">归零 · 星落</option>
-        </optgroup>
-        <optgroup label="旧母题（对照用）">
-        <option value="running">运行（显示时间）</option>
-        <option value="connect">WiFi 连接中</option>
-        <option value="portal">配网等待（星渐现）</option>
-        <option value="portalDot">配网等待（角点 chase）</option>
-        <option value="ripple">手机已连接（涟漪）</option>
-        <option value="ntp">NTP 同步</option>
-        <option value="ota">OTA 升级</option>
-        <option value="error">出错</option>
-        <option value="reset">恢复出厂</option>
-        </optgroup>
-      </select></label>
+      <span class="seg" id="themeSeg">
+        <button data-theme="stars">星空语言 v2</button><button data-theme="motifs">旧母题 v1</button>
+      </span>
+      <label>状态 <span class="selwrap"><select id="state"></select></span>
+      <button id="themeHint" style="display:none"></button></label>
       <button id="show">播放完整状态序列</button>
       <button id="numbersbtn">数值视图</button>
     </div>
@@ -200,8 +191,23 @@
       相机曝光只放大预览观感（模拟暗室长时间曝光），<b>不改变</b>导出的 8bit 值。</p>
     </fieldset>
 
-    <fieldset>
-      <legend>状态母题</legend>
+    <fieldset id="v2params">
+      <legend>星空语言参数</legend>
+      <div class="row"><span>风 周期 s</span><input type="number" id="p_windPeriod" value="5.5" step="0.1" style="width:56px"></div>
+      <div class="row"><span>风 宽度</span><input type="number" id="p_windWidth" value="0.2" step="0.01" style="width:56px"></div>
+      <div class="row"><span>风 低谷倍</span><input type="number" id="p_windFloor" value="0.3" step="0.05" style="width:56px"></div>
+      <div class="row"><span>潮汐 周期 s</span><input type="number" id="p_tidePeriod" value="26" step="1" style="width:56px"></div>
+      <div class="row"><span>潮汐 最暗倍</span><input type="number" id="p_tideLo" value="0.22" step="0.02" style="width:56px"></div>
+      <div class="row"><span>流星 间隔 s</span><input type="number" id="p_meteorEvery" value="3.5" step="0.1" style="width:56px"></div>
+      <div class="row"><span>流星 时长 s</span><input type="number" id="p_meteorDur" value="1.1" step="0.05" style="width:56px"></div>
+      <div class="row"><span>余烬 搏动 s</span><input type="number" id="p_emberPeriod" value="3.5" step="0.1" style="width:56px"></div>
+      <div class="row"><span>升级 演示 s</span><input type="number" id="p_otaDemo" value="14" step="0.5" style="width:56px"></div>
+      <div class="row"><span>停滞 抽搐 s</span><input type="number" id="p_revivePeriod" value="4" step="0.5" style="width:56px"></div>
+      <p class="hint">这一组是"主题描述符里的数字"：LANG 表只声明"哪些调制生效"，具体数值全在这里。</p>
+    </fieldset>
+
+    <fieldset id="v1params">
+      <legend>旧母题参数（v1）</legend>
       <div class="row"><span>扫带周期 s</span><input type="number" id="p_sweepPeriod" value="5.5" step="0.1" style="width:56px"></div>
       <div class="row"><span>扫带宽度 列</span><input type="number" id="p_sweepWidth" value="2.2" step="0.1" style="width:56px"></div>
       <div class="row"><span>扫带峰值</span><input type="number" id="p_sweepPeak" value="0.2" step="0.01" style="width:56px"></div>
@@ -320,6 +326,12 @@ const P = {
   emergeStep: 0.7, emergeMax: 30, emergePeak: 0.30, emergeFade: 2.4,
   chaseStep: 0.8, chasePeak: 0.35,
   rippleDur: 0.9, errPeak: 0.35, textFade: 260,
+  // 星空语言（v2）
+  theme: "stars",
+  windPeriod: 5.5, windWidth: 0.20, windFloor: 0.30,
+  tidePeriod: 26, tideLo: 0.22,
+  meteorEvery: 3.5, meteorDur: 1.1,
+  emberPeriod: 3.5, otaDemo: 14, revivePeriod: 4,
 };
 
 /* ===================== 4. 确定性随机 + 星表 ===================== */
@@ -494,12 +506,12 @@ function simStars(t, state, out) {
 
   // 整场包络：潮汐 = 极慢的整体明暗（"呼吸"但不齐一，因为相位仍各自独立）
   let peakMul = mod.peakMul === "tide"
-    ? mod.tide.lo + (mod.tide.hi - mod.tide.lo) * (0.5 - 0.5 * Math.cos(2 * Math.PI * t / mod.tide.period))
+    ? P.tideLo + (1 - P.tideLo) * (0.5 - 0.5 * Math.cos(2 * Math.PI * t / P.tidePeriod))
     : (mod.peakMul != null ? mod.peakMul : 1);
 
   // 进度类：星一颗颗"够得着"
   let gate = 1;
-  if (mod.fill) gate = Math.min(1, (t % 14) / 12);
+  if (mod.fill) gate = Math.min(1, (t % P.otaDemo) / (P.otaDemo * 0.86));
 
   // 星落：按阅读顺序熄灭
   const fallP = mod.fall ? Math.min(1.25, t / 3.2) : null;
@@ -507,9 +519,9 @@ function simStars(t, state, out) {
   // 停滞时的"抽搐"：每 revive 秒有一颗星试图亮一下（系统还在挣扎）
   let twitchLed = -1, twitchA = 0;
   if (mod.revive) {
-    const ph = (t % mod.revive) / mod.revive;
+    const ph = (t % P.revivePeriod) / P.revivePeriod;
     if (ph < 0.25) {
-      const k = Math.floor(t / mod.revive) % Math.max(1, STARS.length);
+      const k = Math.floor(t / P.revivePeriod) % Math.max(1, STARS.length);
       twitchLed = STARS[k] ? STARS[k].led : -1;
       twitchA = 0.5 * Math.sin(Math.PI * ph / 0.25);
     }
@@ -524,11 +536,11 @@ function simStars(t, state, out) {
     // 风：只吹亮"本来就会亮"的星，绝不凭空点亮新格子
     if (mod.wind) {
       const pos = mod.wind.axis === "y" ? r / GEO.rows : c / GEO.cols;
-      const crest = ((t / mod.wind.period) % 1) * 1.4 - 0.2;
-      const g = Math.exp(-Math.pow((pos - crest) / mod.wind.width, 2));
+      const crest = ((t / P.windPeriod) % 1) * 1.4 - 0.2;
+      const g = Math.exp(-Math.pow((pos - crest) / P.windWidth, 2));
       // 衰减式：波峰处保持用户设定的峰值，其余压到 floor 倍。
       // 绝不超过峰值 —— 否则星会亮过时间文字，层级就塌了。
-      pm *= mod.wind.floor + (1 - mod.wind.floor) * g;
+      pm *= P.windFloor + (1 - P.windFloor) * g;
     }
 
     if (k / n > gate) pm = 0;                    // 星等门槛
@@ -547,7 +559,7 @@ function simStars(t, state, out) {
     const m = /^\s*(\d+)\s*,\s*(\d+)\s*$/.exec(P.planetPos);
     if (m) {
       const i = xyToIndex(Math.min(GEO.rows - 1, +m[1]), Math.min(GEO.cols - 1, +m[2]));
-      const beat = Math.pow(0.5 - 0.5 * Math.cos(2 * Math.PI * t / 3.5), 3);
+      const beat = Math.pow(0.5 - 0.5 * Math.cos(2 * Math.PI * t / P.emberPeriod), 3);
       out[i] = Math.max(out[i], 0.10 + 0.38 * beat);
       SIM_TINT[i] = 3;
     }
@@ -560,7 +572,7 @@ function simStars(t, state, out) {
 
   // 流星：一条带尾的对角线飞过（"事件"，不循环重复形状）
   if (mod.shooting) {
-    const u = (t % mod.shooting.every) / mod.shooting.dur;
+    const u = (t % P.meteorEvery) / P.meteorDur;
     if (u <= 1) {
       const hx = -0.8 + u * (GEO.cols + 1.6);
       const hy = hx * 0.82;                        // 从左下角斜穿到右下角
@@ -933,10 +945,54 @@ document.getElementById("speed").addEventListener("input", (e) => {
 });
 ui.scrub.addEventListener("input", (e) => { t = parseFloat(e.target.value); });
 
+/* ---- 主题：两套方案并列，主题决定"状态列表 + 参数面板" ---- */
+const THEMES = {
+  stars: {
+    label: "星空语言 v2",
+    states: [
+      ["s_running", "运行（星空 + 时间）"], ["s_idle", "星空基线"],
+      ["s_connect", "尝试连接 · 风"], ["s_portal", "等待配置 · 潮汐"],
+      ["s_success", "连接成功 · 流星"], ["s_sync", "同步 · 同相波"],
+      ["s_ota", "升级 · 星等推进"], ["s_error", "出错 · 冻结余烬"],
+      ["s_blocked", "阻塞 · 停滞"], ["s_reset", "归零 · 星落"],
+    ],
+    show: [["s_idle", 10], ["s_connect", 10], ["s_portal", 12], ["s_success", 4],
+           ["s_sync", 5], ["s_running", 10], ["s_ota", 7], ["s_error", 7],
+           ["s_blocked", 6], ["s_reset", 4], ["s_running", 6]],
+  },
+  motifs: {
+    label: "旧母题 v1",
+    states: [
+      ["running", "运行（显示时间）"], ["connect", "WiFi 连接中"],
+      ["portal", "配网等待（星渐现）"], ["portalDot", "配网等待（角点 chase）"],
+      ["ripple", "手机已连接（涟漪）"], ["ntp", "NTP 同步"], ["ota", "OTA 升级"],
+      ["error", "出错"], ["reset", "恢复出厂"],
+    ],
+    show: [["portal", 14], ["ripple", 2.4], ["connect", 11], ["ntp", 6],
+           ["running", 12], ["error", 8], ["reset", 3], ["running", 8]],
+  },
+};
+
+let SHOW = THEMES.stars.show;
+
+function applyTheme(name, keepState) {
+  const th = THEMES[name] || THEMES.stars;
+  P.theme = name;
+  ui.state.innerHTML = th.states.map(([v, l]) => `<option value="${v}">${l}</option>`).join("");
+  const keep = keepState && th.states.some(([v]) => v === keepState) ? keepState : th.states[0][0];
+  ui.state.value = keep;
+  SHOW = th.show;
+  document.querySelectorAll("[data-theme]").forEach(b => b.classList.toggle("on", b.dataset.theme === name));
+  const v1 = document.getElementById("v1params"), v2 = document.getElementById("v2params");
+  if (v1) v1.style.display = name === "motifs" ? "" : "none";
+  if (v2) v2.style.display = name === "stars" ? "" : "none";
+  showing = false;
+  ui.show.classList.remove("on");
+  ui.show.textContent = "播放完整状态序列";
+  t = 0;
+}
+
 let showIdx = 0, showT = 0, showing = false;
-const SHOW = [
-  ["portal", 14], ["ripple", 2.4], ["connect", 11], ["ntp", 6], ["running", 12], ["error", 8], ["reset", 3], ["running", 8],
-];
 ui.show.addEventListener("click", () => {
   showing = !showing; showIdx = 0; showT = 0; t = 0;
   ui.show.classList.toggle("on", showing);
@@ -944,6 +1000,9 @@ ui.show.addEventListener("click", () => {
   if (showing) { ui.state.value = SHOW[0][0]; }
 });
 ui.state.addEventListener("change", () => { showing = false; ui.show.classList.remove("on"); ui.show.textContent = "播放完整状态序列"; t = 0; });
+document.querySelectorAll("[data-theme]").forEach(b => b.addEventListener("click", () => {
+  applyTheme(b.dataset.theme, ui.state.value);
+}));
 
 let numbersOn = false;
 ui.numbersbtn.addEventListener("click", () => {
@@ -1056,6 +1115,7 @@ document.getElementById("expPng").addEventListener("click", () => {
 /* ===================== 12. 启动 ===================== */
 function loadFromQuery() {
   const q = new URLSearchParams(location.search);
+  if (q.has("theme")) applyTheme(q.get("theme"));
   if (q.has("state")) { ui.state.value = q.get("state"); showing = false; }
   if (q.has("t")) t = parseFloat(q.get("t")) || 0;
   if (q.has("pause")) {                      // pause=1（默认）= 冻结画面；pause=0 = 继续播放
@@ -1095,6 +1155,7 @@ if (document.fonts && document.fonts.load) {
 }
 window.addEventListener("resize", () => layout());
 loadFromHash();
+applyTheme(P.theme || "stars");        // 先铺状态列表（主题决定有哪些状态）
 loadFromQuery();
 syncControls();
 rebuildStars();
