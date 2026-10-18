@@ -205,6 +205,11 @@
       <div class="row"><span>星色偏移</span><span><input type="range" id="p_tintSpread" min="0" max="1" step="0.05" value="0.5"><b id="v_tintSpread">0.500</b></span></div>
       <div class="row"><span>planet 暖点</span><span><input type="checkbox" id="p_planet" checked> <input type="text" id="p_planetPos" value="8,1" style="width:52px"></span></div>
       <div class="row"><span>随机种子</span><span><input type="number" id="p_seed" value="20261018" step="1"></span></div>
+      <div class="row"><span>运行时星空</span><span class="seg" id="quietSeg">
+        <button data-quiet="0">静止</button><button data-quiet="1">缓闪</button><button data-quiet="2">闪烁</button>
+      </span></div>
+      <p class="hint">"运行时星空"直接改当前主题 running 态的 rate/peakMul（静止 = 0 / 0.30，
+      缓闪 = 0.15 / 0.35，闪烁 = 1 / 1）。改完能在描述符 JSON 里看到。</p>
     </fieldset>
 
     <fieldset>
@@ -518,6 +523,18 @@ function genStars(ov, t) {
       SIM_TINT[st.led] = ov.hue ? 2 : st.tint;
     }
   }
+  // planet：一颗固定的暖色点，14s 极慢呼吸。它承担"设备还活着"的信号，
+  // 让运行态的星空可以完全不闪——动的东西只有它，且幅度很低（码值 1~7）。
+  if (P.planet && ov.planet !== false) {
+    const m = /^\s*(\d+)\s*,\s*(\d+)\s*$/.exec(P.planetPos || "");
+    if (m) {
+      const i = xyToIndex(Math.min(GEO.rows - 1, +m[1]), Math.min(GEO.cols - 1, +m[2]));
+      const breath = 0.5 - 0.5 * Math.cos(2 * Math.PI * t / 14);
+      const a = (0.10 + 0.10 * breath) * (ov.planetMul != null ? ov.planetMul : 1);
+      put(i, a, "max", 3);
+    }
+  }
+
   if (twitchLed >= 0 && twitchA > SIM_ALPHA[twitchLed]) {
     SIM_ALPHA[twitchLed] = twitchA;
     SIM_TINT[twitchLed] = 0;
@@ -964,8 +981,11 @@ const THEME_DESC = {
                                // 标签写死成紧凑的一簇（跨度 2×5），一眼能读出 SYNC
                                { gen: "label", text: "SYNC", mode: "progress", progress: "demo", demo: 6,
                                  dots: true, peak: 0.55, cells: [[3,4],[2,5],[3,7],[1,10]] }] },
-      running:             { stars: {}, text: true },
-      minute_change:       { stars: {}, text: true, mods: [{ gen: "tick", dur: 0.14, peak: 0.45 }] },
+      // 运行态刻意"静"：星空完全静止（rate 0）且压到 peakMul 0.3（最亮星码值≈15），
+      // 唯一在动的是 planet 的 14s 呼吸（码值 1~7）。闪烁的预算留给异常状态。
+      running:             { stars: { rate: 0, peakMul: 0.30 }, text: true },
+      minute_change:       { stars: { rate: 0, peakMul: 0.30 }, text: true,
+                             mods: [{ gen: "tick", dur: 0.14, peak: 0.45 }] },
       ota_download:        { stars: { rate: 1.1 }, mods: [
                                { gen: "label", text: "OTA", mode: "progress", progress: "demo", demo: 14,
                                  dots: true, peak: 0.60, cells: [[6,1],[4,3],[1,4]] }] },
@@ -985,7 +1005,7 @@ const THEME_DESC = {
                                { gen: "label", text: "TIME", mode: "blink", period: 6, peak: 0.55, sharp: 3, tint: 3,
                                  cells: [[1,6],[2,7],[0,8],[2,9]] }] },
       factory_reset:       { stars: { fall: true } },
-      deep_night:          { stars: { peakMul: 0.75 } },
+      deep_night:          { stars: { peakMul: 0.75 }, planetMul: 1.4 },
       apply_config:        { stars: { rate: 0.6 }, mods: [
                                { gen: "band", axis: "diagr", period: 0.5, width: 1.6, peak: 0.45 }] },
     },
@@ -1835,6 +1855,7 @@ document.getElementById("descApply").addEventListener("click", applyJson);
 document.getElementById("descReload").addEventListener("click", syncJson);
 renderStateEditor();
 syncJson();
+markQuiet();
 requestAnimationFrame(loop);
 </script>
 </body>
