@@ -84,3 +84,19 @@ python3 tools/uart_sniff.py
 | 配网页在墨水屏上重绘闪烁/发灰 | 灰底灰字在 1-bit 屏上会抖成网点，且频繁改 DOM 会整屏重绘 | 页面改二级菜单、只保留两级灰用于非关键信息、DOM 仅在内容变化时更新、`prefers-contrast: more` 时退化为纯黑白 |
 | 日志里看不到 Rust `info!` | Rust log 只走主控制台 | `app/sdkconfig.defaults` 注释 |
 | esp-idf-sys 找不到 sdkconfig.defaults | 需显式指定 | `firmware/.cargo/config.toml` 注释 |
+
+## 动效调试（tools/anim_lab）
+
+灯板动效先在宿主机浏览器里调，再落固件（规格见 [animation.md](animation.md)）：
+
+```bash
+python3 tools/anim_lab.py        # → http://<本机IP>:8901/
+```
+
+它是**单文件**（`tools/anim_lab.html`，无构建、无依赖），改完刷新即可。
+三个容易踩的点：
+
+1. **别只看网页顺滑**。网页渲染是真彩，硬件是 8bit 线性光：α 0.18 只值 **6/255**，
+   暗部慢速淡入必然跳台阶。实验台的 gamma 默认 2.2 就是为了让这个台阶提前暴露。
+2. **相机曝光是渲染用的，不是固件值**。它模拟暗室长曝光，改它不影响导出的 CSV。
+3. 分享/回归用 URL 参数钉住画面：`?state=connect&t=2.2&pause=1&exposure=2.6`。

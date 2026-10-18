@@ -1,0 +1,952 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>字钟 · 动效实验台</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Allerta+Stencil&display=swap" rel="stylesheet">
+<!--
+  字钟动效实验台（宿主机）
+  ==========================
+  目的：在真实固件之前，把 114 颗 LED 的动效在浏览器里摸清。
+  三条铁律（决定这个文件为什么这么写）：
+
+  1) 仿真与渲染分离。`sim()` 只做「感知亮度 alpha → 8bit 值」的纯计算，
+     不碰 canvas。这段数学要能 1:1 搬到 Rust（wordclock-core/src/anim.rs）。
+
+  2) 忠实模拟硬件的粗糙度。WS2812 是 8bit + 线性光输出，所以
+     感知 alpha 必须过 gamma（默认 2.2）才会得到真实的灰阶跳变；
+     暗部还要能开/关时间抖动。网页上看着顺滑但固件上跳台阶 = 白调。
+
+  3) 几何照抄结构件（enclosure/scad/wordclock.scad）：
+     pitch 16.58mm、字高 10.5mm、格栅壁 1.2mm、四角点光腔 9mm。
+
+  参数可通过 URL 传入（给将来的「API 传动效」铺路）：
+     anim_lab.html#p=<base64(JSON.stringify(params))>
+-->
+<style>
+  :root{
+    --ink:#e8e8e8; --ink2:#8a8a8a; --ink3:#5a5a5a;
+    --bg:#0a0a0a; --panel:#111; --rule:#2a2a2a; --accent:#c45c26;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg); color:var(--ink);
+    font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    display:flex; flex-direction:column; overflow:hidden;
+  }
+  header{
+    display:flex; justify-content:space-between; align-items:baseline;
+    padding:10px 16px; border-bottom:1px solid var(--rule); flex:none;
+  }
+  header h1{font-size:12px; font-weight:400; margin:0; letter-spacing:.14em}
+  header .meta{color:var(--ink3); font-size:11px}
+  .app{flex:1; display:grid; grid-template-columns:1fr 314px; min-height:0}
+  @media (max-width:900px){
+    .app{grid-template-columns:1fr; grid-template-rows:1fr auto}
+    aside{width:auto; border-left:0; border-top:1px solid var(--rule); max-height:44vh}
+  }
+
+  /* ---- 舞台 ---- */
+  main{display:grid; grid-template-rows:1fr auto auto; min-width:0; min-height:0; padding:16px}
+  .stage{
+    display:flex; align-items:center; justify-content:center;
+    min-height:120px; min-width:0; background:#000; border:1px solid var(--rule);
+    overflow:hidden;
+  }
+  #panel{max-width:100%; max-height:100%; display:block}
+
+  .transport{
+    flex:none; display:flex; flex-wrap:wrap; gap:10px; align-items:center;
+    padding-top:12px;
+  }
+  .transport label{color:var(--ink2); display:flex; gap:6px; align-items:center}
+  button{
+    background:transparent; color:var(--ink); border:1px solid var(--ink3);
+    padding:4px 10px; font:inherit; cursor:pointer; letter-spacing:.05em;
+  }
+  button:hover{border-color:var(--ink2); color:#fff}
+  button.on{background:var(--ink); color:#000; border-color:var(--ink)}
+  input[type=range]{width:120px; accent-color:var(--accent)}
+  input[type=text],input[type=number]{
+    background:transparent; color:var(--ink); border:1px solid var(--rule);
+    padding:3px 6px; font:inherit; width:64px;
+  }
+  .hud{
+    flex:none; display:flex; gap:18px; padding-top:8px;
+    color:var(--ink3); font-size:11px; flex-wrap:wrap;
+  }
+  .hud b{color:var(--ink2); font-weight:400}
+
+  /* ---- 控制面板 ---- */
+  aside{
+    width:314px; flex:none; border-left:1px solid var(--rule);
+    overflow-y:auto; padding:12px 14px 40px;
+  }
+  aside::-webkit-scrollbar{width:8px}
+  aside::-webkit-scrollbar-thumb{background:#222}
+  fieldset{border:0; border-top:1px solid var(--rule); margin:0 0 12px; padding:10px 0 0}
+  legend{color:var(--ink2); font-size:11px; letter-spacing:.12em; padding:0 6px 0 0}
+  .row{display:flex; justify-content:space-between; align-items:center; gap:8px; margin:7px 0}
+  .row > span{color:var(--ink2)}
+  .row > span b{color:var(--ink); font-weight:400}
+  select{
+    background:transparent; color:var(--ink); border:1px solid var(--ink3);
+    font:inherit; padding:3px 4px;
+  }
+  .seg{display:flex; gap:0}
+  .seg button{border-radius:0; border-right-width:0}
+  .seg button:last-child{border-right-width:1px}
+  .hint{color:var(--ink3); font-size:11px; margin:6px 0 0; line-height:1.5}
+  .wide{width:100%}
+
+  /* ---- 数值视图 ---- */
+  .numbers{
+    flex:none; border-top:1px solid var(--rule); padding:10px 16px;
+    display:none; max-height:34vh; overflow:auto;
+  }
+  .numbers.on{display:block}
+  .numbers table{border-collapse:collapse; font-size:10px}
+  .numbers td{
+    border:1px solid #1c1c1c; padding:2px 4px; color:var(--ink3);
+    white-space:nowrap;
+  }
+  .numbers td.cell{color:var(--ink2)}
+  .sw{display:inline-block; width:8px; height:8px; margin-right:4px; vertical-align:-1px}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>字钟 · 动效实验台</h1>
+  <div class="meta">114 灯 / 11×10 字母阵 / 8bit + gamma 模拟 —— 参数改动即时生效</div>
+</header>
+
+<div class="app">
+  <main>
+    <div class="stage"><canvas id="panel"></canvas></div>
+    <div class="transport">
+      <button id="play">暂停</button>
+      <label>速度 <input type="range" id="speed" min="0.1" max="12" step="0.1" value="1"><b id="speedv">1×</b></label>
+      <label>时间 <input type="range" id="scrub" min="0" max="120" step="0.05" value="0"><b id="scrubv">0.0s</b></label>
+      <label>状态 <select id="state">
+        <option value="running">运行（显示时间）</option>
+        <option value="connect">WiFi 连接中</option>
+        <option value="portal">配网等待（星渐现）</option>
+        <option value="portalDot">配网等待（角点 chase）</option>
+        <option value="ripple">手机已连接（涟漪）</option>
+        <option value="ntp">NTP 同步</option>
+        <option value="ota">OTA 升级</option>
+        <option value="error">出错</option>
+        <option value="reset">恢复出厂</option>
+      </select></label>
+      <button id="show">播放完整状态序列</button>
+      <button id="numbersbtn">数值视图</button>
+    </div>
+    <div class="hud">
+      <span>t <b id="hudt">0.00s</b></span>
+      <span>时间 <b id="hudclock">10:09</b></span>
+      <span>点亮 <b id="hudlit">0</b>/114</span>
+      <span>最大码值 <b id="hudmax">0</b>/255</span>
+      <span>平均码值 <b id="hudavg">0.0</b></span>
+      <span id="hudstate">—</span>
+    </div>
+  </main>
+
+  <aside>
+    <fieldset>
+      <legend>星场</legend>
+      <div class="row"><span>星数</span><span><input type="range" id="p_starCount" min="0" max="80" step="1" value="32"><b id="v_starCount">32</b></span></div>
+      <div class="row"><span>亮星比例</span><span><input type="range" id="p_brightFrac" min="0" max="0.5" step="0.01" value="0.19"><b id="v_brightFrac">0.19</b></span></div>
+      <div class="row"><span>峰值 alpha</span><span><input type="range" id="p_peak" min="0" max="0.6" step="0.01" value="0.3"><b id="v_peak">0.30</b></span></div>
+      <div class="row"><span>周期 最短/最长</span><span><input type="number" id="p_perMin" min="0.5" max="60" step="0.1" value="3.6"> – <input type="number" id="p_perMax" min="0.5" max="60" step="0.1" value="9.5"></span></div>
+      <div class="row"><span>闪烁曲线</span><span class="seg">
+        <button data-curve="sine">正弦</button><button data-curve="spike">尖峰</button><button data-curve="drift">漂移</button>
+      </span></div>
+      <div class="row"><span>底色 floor</span><span><input type="range" id="p_floor" min="0" max="0.12" step="0.005" value="0.02"><b id="v_floor">0.020</b></span></div>
+      <div class="row"><span>星色偏移</span><span><input type="range" id="p_tintSpread" min="0" max="1" step="0.05" value="0.5"><b id="v_tintSpread">0.50</b></span></div>
+      <div class="row"><span>planet 暖点</span><span><input type="checkbox" id="p_planet" checked> <input type="text" id="p_planetPos" value="8,1" style="width:52px"></span></div>
+      <div class="row"><span>随机种子</span><span><input type="number" id="p_seed" value="20261018" step="1"></span></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>输出（硬件模拟）</legend>
+      <div class="row"><span>gamma</span><span><input type="range" id="p_gamma" min="1" max="3" step="0.05" value="2.2"><b id="v_gamma">2.20</b></span></div>
+      <div class="row"><span>时间抖动</span><span><input type="checkbox" id="p_dither" checked></span></div>
+      <div class="row"><span>色温</span><span class="seg">
+        <button data-temp="cool">冷白</button><button data-temp="neutral">正白</button><button data-temp="warm">暖白</button><button data-temp="amber">琥珀</button>
+      </span></div>
+      <div class="row"><span>泛光强度</span><span><input type="range" id="p_bloom" min="0" max="1" step="0.02" value="0.45"><b id="v_bloom">0.450</b></span></div>
+      <div class="row"><span>格栅/外框</span><span><input type="checkbox" id="p_grid" checked></span></div>
+      <div class="row"><span>相机曝光</span><span><input type="range" id="p_exposure" min="0.3" max="8" step="0.1" value="2"><b id="v_exposure">2.0</b></span></div>
+      <div class="row"><span>隐藏时间文字</span><span><input type="checkbox" id="p_hideText"></span></div>
+      <p class="hint">gamma 是"物理诚实度"：2.2 时 alpha 0.18 只值 6/255，暗部必然跳台阶——这就是固件上会看到的样子。<br>
+      相机曝光只放大预览观感（模拟暗室长时间曝光），<b>不改变</b>导出的 8bit 值。</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>状态母题</legend>
+      <div class="row"><span>扫带周期 s</span><input type="number" id="p_sweepPeriod" value="5.5" step="0.1" style="width:56px"></div>
+      <div class="row"><span>扫带宽度 列</span><input type="number" id="p_sweepWidth" value="2.2" step="0.1" style="width:56px"></div>
+      <div class="row"><span>扫带峰值</span><input type="number" id="p_sweepPeak" value="0.2" step="0.01" style="width:56px"></div>
+      <div class="row"><span>渐现间隔 s</span><input type="number" id="p_emergeStep" value="0.7" step="0.05" style="width:56px"></div>
+      <div class="row"><span>渐现淡入 s</span><input type="number" id="p_emergeFade" value="2.4" step="0.1" style="width:56px"></div>
+      <div class="row"><span>渐现上限 颗</span><input type="number" id="p_emergeMax" value="30" step="1" style="width:56px"></div>
+      <div class="row"><span>渐现峰值 α</span><input type="number" id="p_emergePeak" value="0.3" step="0.01" style="width:56px"></div>
+      <div class="row"><span>角点 step s</span><input type="number" id="p_chaseStep" value="0.8" step="0.05" style="width:56px"></div>
+      <div class="row"><span>角点峰值 α</span><input type="number" id="p_chasePeak" value="0.35" step="0.01" style="width:56px"></div>
+      <div class="row"><span>涟漪时长 s</span><input type="number" id="p_rippleDur" value="0.9" step="0.1" style="width:56px"></div>
+      <div class="row"><span>错误脉冲 alpha</span><input type="number" id="p_errPeak" value="0.35" step="0.01" style="width:56px"></div>
+      <div class="row"><span>换词淡入 ms</span><input type="number" id="p_textFade" value="260" step="10" style="width:56px"></div>
+      <p class="hint" id="alphaTable">α → 8bit 码值换算加载中…</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>导出</legend>
+      <div class="row"><button id="expParams" class="wide">复制参数 JSON</button></div>
+      <div class="row"><button id="expLink" class="wide">复制分享链接</button></div>
+      <div class="row"><button id="expGold" class="wide">导出 golden 帧 CSV</button></div>
+      <div class="row"><button id="expPng" class="wide">导出面板 PNG</button></div>
+      <p class="hint">golden 帧用于固件单测：网页算出的 8bit 值必须和 Rust 实现逐帧一致。</p>
+    </fieldset>
+  </aside>
+</div>
+
+<div class="numbers" id="numbers"></div>
+
+<script>
+"use strict";
+
+/* ===================== 1. 几何（照抄 enclosure/scad/wordclock.scad） ===================== */
+const GEO = {
+  cols: 11, rows: 10,
+  pitch: 16.58,          // mm
+  letterSize: 10.5,      // 字高 mm
+  gridWall: 1.2,         // 格栅壁厚 mm
+  margin: 14,            // 字面外边框 mm
+  dotCavity: 9,          // 四角点光腔直径 mm
+  dotWindow: 7,          // 前面板分钟点圆窗直径 mm
+};
+const LETTER_LEDS = GEO.cols * GEO.rows;   // 110
+const CORNER_LEDS = 4;
+const TOTAL = LETTER_LEDS + CORNER_LEDS;   // 114
+
+const PLATE_W = GEO.cols * GEO.pitch + 2 * GEO.margin;
+const PLATE_H = GEO.rows * GEO.pitch + 2 * GEO.margin;
+
+/* ===================== 2. 字母阵 + 时间规则（照抄 wordclock-core） ===================== */
+// 11×10 字母阵，逐行照抄 wordclock-core/src/lib.rs 的文档注释
+const GRID = [
+  "ITLISASAMPM",
+  "ACQUARTERDC",
+  "TWENTYFIVEX",
+  "HALFSTENFTO",
+  "PASTERUNINE",
+  "ONESIXTHREE",
+  "FOURFIVETWO",
+  "EIGHTELEVEN",
+  "SEVENTWELVE",
+  "TENSEOCLOCK",
+];
+
+const W = (row, col, len) => ({ row, col, len });
+const WORDS = {
+  IT: W(0, 0, 2), IS: W(0, 3, 2),
+  A: W(1, 0, 1), QUARTER: W(1, 2, 7),
+  TWENTY: W(2, 0, 6), MFIVE: W(2, 6, 4),
+  HALF: W(3, 0, 4), MTEN: W(3, 5, 3), TO: W(3, 9, 2),
+  PAST: W(4, 0, 4), OCLOCK: W(9, 5, 6),
+};
+const HOURS = [
+  W(5, 0, 3), W(6, 8, 3), W(5, 6, 5), W(6, 0, 4), W(6, 4, 4), W(5, 3, 3),
+  W(8, 0, 5), W(7, 0, 5), W(4, 7, 4), W(9, 0, 3), W(7, 5, 6), W(8, 5, 6),
+];
+const xyToIndex = (row, col) => row * GEO.cols + (row % 2 === 0 ? col : GEO.cols - 1 - col);
+
+function timeToLit(hour24, minute) {
+  const lit = new Uint8Array(TOTAL);
+  const put = (w) => { for (let i = 0; i < w.len; i++) lit[xyToIndex(w.row, w.col + i)] = 1; };
+  put(WORDS.IT); put(WORDS.IS);
+  const step = Math.floor(minute / 5);
+  const dots = minute % 5;
+  let h = hour24 % 12; if (h === 0) h = 12;
+  if (step >= 7) h = (h % 12) + 1;
+  const hw = HOURS[h - 1];
+  switch (step) {
+    case 0: put(hw); put(WORDS.OCLOCK); break;
+    case 1: put(WORDS.MFIVE); put(WORDS.PAST); put(hw); break;
+    case 2: put(WORDS.MTEN); put(WORDS.PAST); put(hw); break;
+    case 3: put(WORDS.A); put(WORDS.QUARTER); put(WORDS.PAST); put(hw); break;
+    case 4: put(WORDS.TWENTY); put(WORDS.PAST); put(hw); break;
+    case 5: put(WORDS.TWENTY); put(WORDS.MFIVE); put(WORDS.PAST); put(hw); break;
+    case 6: put(WORDS.HALF); put(WORDS.PAST); put(hw); break;
+    case 7: put(WORDS.TWENTY); put(WORDS.MFIVE); put(WORDS.TO); put(hw); break;
+    case 8: put(WORDS.TWENTY); put(WORDS.TO); put(hw); break;
+    case 9: put(WORDS.A); put(WORDS.QUARTER); put(WORDS.TO); put(hw); break;
+    case 10: put(WORDS.MTEN); put(WORDS.TO); put(hw); break;
+    case 11: put(WORDS.MFIVE); put(WORDS.TO); put(hw); break;
+  }
+  for (let i = 0; i < Math.min(dots, CORNER_LEDS); i++) lit[LETTER_LEDS + i] = 1;
+  return lit;
+}
+
+/* ===================== 3. 参数 ===================== */
+const P = {
+  // 星场
+  starCount: 32, brightFrac: 0.19, peak: 0.30,
+  perMin: 3.6, perMax: 9.5, curve: "spike", floor: 0.006,
+  tintSpread: 0.5, planet: true, planetPos: "8,1", seed: 20261018,
+  // 输出
+  gamma: 2.2, dither: true, temp: "neutral", bloom: 0.45, grid: true,
+  exposure: 2.0, hideText: false,
+  // 母题
+  sweepPeriod: 5.5, sweepWidth: 2.2, sweepPeak: 0.40,
+  emergeStep: 0.7, emergeMax: 30, emergePeak: 0.30, emergeFade: 2.4,
+  chaseStep: 0.8, chasePeak: 0.35,
+  rippleDur: 0.9, errPeak: 0.35, textFade: 260,
+};
+
+/* ===================== 4. 确定性随机 + 星表 ===================== */
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+// 星色档：0 = 近白（设备色温），1 = 偏冷，2 = 偏暖，3 = 琥珀
+let STARS = [];
+function rebuildStars() {
+  const rnd = mulberry32(P.seed);
+  const order = [...Array(LETTER_LEDS).keys()];
+  for (let i = order.length - 1; i > 0; i--) {       // Fisher-Yates（种子固定 → 星空固定）
+    const j = Math.floor(rnd() * (i + 1));
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  const n = Math.min(P.starCount, LETTER_LEDS);
+  const nBright = Math.round(n * P.brightFrac);
+  STARS = [];
+  for (let i = 0; i < n; i++) {
+    const r1 = rnd(), r2 = rnd(), r3 = rnd(), r4 = rnd();
+    // 星等：亮星稀缺。tier 0 最亮，之后每档衰减
+    let magScale;
+    if (i < nBright) magScale = 1.0 - 0.15 * r1;               // 亮星
+    else if (i < nBright + Math.round(n * 0.4)) magScale = 0.55 - 0.1 * r1; // 中
+    else magScale = 0.3 - 0.08 * r1;                            // 弱
+    STARS.push({
+      led: order[i],
+      peak: P.peak * magScale,
+      period: P.perMin + (P.perMax - P.perMin) * r2,           // 互不整除的连续值
+      phase: r3,
+      // 色偏：大部分近白，少数偏冷暖（真实星表里蓝白/橙红是少数）
+      tint: r4 < 0.62 ? 0 : (r4 < 0.84 ? 1 : (r4 < 0.97 ? 2 : 3)),
+    });
+  }
+}
+
+// 闪烁曲线：u ∈ [0,1) → [0,1]
+function twinkle(u) {
+  switch (P.curve) {
+    case "spike": {                       // 快起慢落：真实的星星闪
+      const s = Math.sin(Math.PI * u);
+      return s * s * s * s;
+    }
+    case "drift": {                       // 慢漂移：两条不谐波正弦叠加，几乎不重复
+      return 0.5 + 0.25 * Math.sin(2 * Math.PI * u) + 0.25 * Math.sin(2 * Math.PI * u * 2.718 + 1.7);
+    }
+    default:                              // 对称 ease-in-out（与 blog.trav.one 页头一致）
+      return 0.5 - 0.5 * Math.cos(2 * Math.PI * u);
+  }
+}
+
+/* ===================== 5. 状态母题 ===================== */
+const clamp01 = (x) => x < 0 ? 0 : x > 1 ? 1 : x;
+const smooth = (x) => { const t = clamp01(x); return t * t * (3 - 2 * t); };
+
+function gauss(d, w) { return Math.exp(-(d * d) / (w * w)); }
+
+// 柔光扫带：一列高斯光从右往左（真实阅读方向感）；无硬边 → 不像跑马灯
+function motifSweep(t, out) {
+  const n = P.sweepPeriod;
+  const pos = ((t / n) % 1) * (GEO.cols + 2 * P.sweepWidth) - P.sweepWidth;
+  for (let r = 0; r < GEO.rows; r++) {
+    for (let c = 0; c < GEO.cols; c++) {
+      const d = Math.abs(c - pos);
+      const a = P.sweepPeak * gauss(d, P.sweepWidth);
+      const i = xyToIndex(r, c);
+      out[i] = Math.max(out[i], a);
+    }
+  }
+}
+
+// 星渐现：一颗接一颗点亮（夜幕降临），到上限后整体淡出重来
+function motifEmerge(t) {
+  const fade = P.emergeFade, hold = 3.0;
+  const cycle = P.emergeMax * P.emergeStep + fade + hold;
+  const tt = t % cycle;
+  const res = new Float32Array(TOTAL);
+  for (let k = 0; k < STARS.length && k < P.emergeMax; k++) {
+    const birth = k * P.emergeStep;
+    const a = smooth((tt - birth) / fade);
+    if (a <= 0) continue;
+    // 收尾统一淡出
+    const outStart = P.emergeMax * P.emergeStep + fade;
+    const die = tt > outStart ? smooth((tt - outStart) / hold) : 0;
+    res[STARS[k].led] = Math.max(res[STARS[k].led], P.emergePeak * a * (1 - die));
+  }
+  return res;
+}
+
+// 四角点 chase：4 颗分钟点依次点亮（每颗 chaseStep 秒），只有 1 颗亮着
+// —— 物理上远离字母阵，所以是"最小面积的跑马灯"，不容易显土
+function motifCornerChase(t, out) {
+  const step = P.chaseStep;
+  const u = (t / step) % 4;
+  const k = Math.floor(u);
+  const frac = u - k;
+  // 亮 60% 的时间，剩下熄灭，形成"跳"的手感
+  const env = frac < 0.62 ? 1 : Math.max(0, 1 - (frac - 0.62) / 0.38);
+  const a = P.chasePeak * env;
+  out[LETTER_LEDS + k] = Math.max(out[LETTER_LEDS + k], a);
+}
+
+// 涟漪：从左下扩散（单次）
+function motifRipple(t, out) {
+  const u = t / P.rippleDur;
+  if (u > 1.35) return;
+  const c0 = 0, r0 = GEO.rows - 1;
+  for (let r = 0; r < GEO.rows; r++) {
+    for (let c = 0; c < GEO.cols; c++) {
+      const d = Math.hypot((c - c0) / GEO.cols, (r - r0) / GEO.rows) * 1.6;
+      const w = 0.22;
+      const a = 0.28 * gauss(d - u * 1.6, w) * (u < 1 ? 1 : (1.35 - u) / 0.35);
+      const i = xyToIndex(r, c);
+      out[i] = Math.max(out[i], a);
+    }
+  }
+}
+
+// 写字进度：按行主序点亮到 progress
+function motifProgress(progress, out) {
+  for (let r = 0; r < GEO.rows; r++) {
+    for (let c = 0; c < GEO.cols; c++) {
+      const k = r * GEO.cols + c;
+      const a = k < progress * LETTER_LEDS ? 0.5 : 0.0;
+      const i = xyToIndex(r, c);
+      out[i] = Math.max(out[i], a);
+    }
+  }
+}
+
+/* ===================== 6. 仿真核心（可直接移植 Rust） ===================== */
+// 返回 114 个「感知 alpha」+ 每颗的色档
+let SIM_ALPHA = new Float32Array(TOTAL);
+let SIM_TINT = new Uint8Array(TOTAL);
+
+function sim(t, state, clockLit) {
+  const out = SIM_ALPHA;
+  out.fill(0);
+
+  // ---- 底层：星场（除 portal/ota 外的状态都保留，制造"设备活着"的连续感） ----
+  const starLevel = (state === "reset") ? 0 : 1;
+  if (starLevel) {
+    for (let k = 0; k < STARS.length; k++) {
+      const s = STARS[k];
+      const u = ((t / s.period) + s.phase) % 1;
+      out[s.led] = Math.max(out[s.led], P.floor + (s.peak - P.floor) * twinkle(u));
+      SIM_TINT[s.led] = s.tint;
+    }
+    if (P.planet) {
+      const m = /^\s*(\d+)\s*,\s*(\d+)\s*$/.exec(P.planetPos);
+      if (m) {
+        const r = Math.min(GEO.rows - 1, +m[1]), c = Math.min(GEO.cols - 1, +m[2]);
+        const i = xyToIndex(r, c);
+        // planet：极慢呼吸 12s，暖色，不闪
+        const b = 0.10 + 0.06 * (0.5 - 0.5 * Math.cos(2 * Math.PI * t / 12));
+        out[i] = Math.max(out[i], b);
+        SIM_TINT[i] = 3;
+      }
+    }
+  }
+
+  // ---- 状态母题 ----
+  switch (state) {
+    case "connect":
+      motifSweep(t, out);
+      break;
+    case "portal": {
+      const e = motifEmerge(t);
+      for (let i = 0; i < LETTER_LEDS; i++) if (e[i] > out[i]) { out[i] = e[i]; SIM_TINT[i] = 0; }
+      break;
+    }
+    case "portalDot":
+      motifCornerChase(t, out);
+      break;
+    case "ripple":
+      motifRipple(t, out);
+      break;
+    case "ntp": {
+      const prog = Math.min(1, (t % 6) / 3.2);
+      motifProgress(prog, out);
+      break;
+    }
+    case "ota": {
+      const prog = Math.min(1, (t % 12) / 11);
+      motifProgress(prog, out);
+      break;
+    }
+    case "error": {
+      // 暖色脉冲：中心格，快起慢落，每 5s 一次
+      const per = 5, tt = t % per;
+      const env = tt < 0.18 ? smooth(tt / 0.18) : Math.max(0, 1 - (tt - 0.18) / 1.2);
+      const i = xyToIndex(4, 5);
+      out[i] = Math.max(out[i], P.errPeak * env);
+      SIM_TINT[i] = 3;
+      break;
+    }
+    case "reset": {
+      const u = t / 2.4;
+      const a = 0.5 * Math.max(0, 1 - u);
+      if (a > 0) for (let i = 0; i < LETTER_LEDS; i++) out[i] = Math.max(out[i], a);
+      break;
+    }
+  }
+
+  // ---- 文字层：永远最亮，压过一切 ----
+  if (state === "running" && clockLit && !P.hideText) {
+    for (let i = 0; i < LETTER_LEDS; i++) if (clockLit[i]) { out[i] = 1.0; SIM_TINT[i] = 0; }
+    // 四角分钟点：点亮的用略低亮度，避免抢眼
+    for (let k = 0; k < CORNER_LEDS; k++) {
+      const i = LETTER_LEDS + k;
+      out[i] = clockLit[i] ? 0.85 : 0.0;
+      SIM_TINT[i] = 0;
+    }
+  } else {
+    for (let k = 0; k < CORNER_LEDS; k++) { out[LETTER_LEDS + k] = Math.max(out[LETTER_LEDS + k], 0); }
+  }
+  return out;
+}
+
+/* ===================== 7. 量化：alpha → 8bit（含 gamma + 抖动） ===================== */
+const BAYER = [0.5, 0.25, 0.75, 0.0];   // 2x2 有序抖动的相位
+let OUT_RGB = new Uint8Array(TOTAL * 3);
+
+function quantize(alphas, frameNo) {
+  const g = P.gamma;
+  for (let i = 0; i < TOTAL; i++) {
+    const a = alphas[i];
+    let v = Math.pow(a, g) * 255;
+    if (P.dither && v > 0 && v < 255) {
+      const th = BAYER[(i + frameNo) & 3];
+      v = Math.floor(v + th * 0.999);
+    } else {
+      v = Math.round(v);
+    }
+    v = v < 0 ? 0 : v > 255 ? 255 : v;
+    OUT_RGB[i * 3] = v;
+  }
+  return OUT_RGB;
+}
+
+/* ===================== 8. 颜色 ===================== */
+const TEMPS = {
+  cool:    [225, 236, 255],
+  neutral: [255, 246, 232],
+  warm:    [255, 214, 160],
+  amber:   [255, 150, 60],
+};
+// 每颗星的最终颜色 = 基础色温 × 色档偏移（偏移量由 tintSpread 控制）
+function colorFor(level, tint) {
+  const base = TEMPS[P.temp];
+  const sp = P.tintSpread;
+  let mul;
+  switch (tint) {
+    case 1: mul = [1 - 0.10 * sp, 1 - 0.03 * sp, 1 + 0.00 * sp]; break;  // 偏冷
+    case 2: mul = [1 + 0.00 * sp, 1 - 0.06 * sp, 1 - 0.22 * sp]; break;  // 偏暖
+    case 3: mul = [1 + 0.00 * sp, 1 - 0.34 * sp, 1 - 0.72 * sp]; break;  // 琥珀
+    default: mul = [1, 1, 1];
+  }
+  return [
+    Math.min(255, Math.round(base[0] * mul[0] * level / 255)),
+    Math.min(255, Math.round(base[1] * mul[1] * level / 255)),
+    Math.min(255, Math.round(base[2] * mul[2] * level / 255)),
+  ];
+}
+
+/* ===================== 9. 渲染 ===================== */
+const canvas = document.getElementById("panel");
+const ctx = canvas.getContext("2d");
+let emit, ectx;                 // 发光层（离屏，彩色）
+let SPR = [];                   // SPR[tintKey][glyph] = 已上色的 sprite
+let DOT = [];                   // DOT[tintKey]
+let cellPx = 0, padPx = 0;
+const GLYPH_FONT = '"Allerta Stencil", "Bodoni 72", Didot, Georgia, serif';
+
+function layout() {
+  const stage = canvas.parentElement;
+  const availW = stage.clientWidth - 2, availH = stage.clientHeight - 2;
+  if (availW < 40 || availH < 40) return;          // 布局未就绪，等 resize 再来
+  const scale = Math.min(availW / PLATE_W, availH / PLATE_H);
+  if (!(scale > 0)) return;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  canvas.style.width = (PLATE_W * scale) + "px";
+  canvas.style.height = (PLATE_H * scale) + "px";
+  canvas.width = Math.round(PLATE_W * scale * dpr);
+  canvas.height = Math.round(PLATE_H * scale * dpr);
+  if (!emit) { emit = document.createElement("canvas"); ectx = emit.getContext("2d"); }
+  emit.width = canvas.width; emit.height = canvas.height;
+  cellPx = GEO.pitch * scale * dpr;
+  padPx = GEO.margin * scale * dpr;
+  buildSprites();
+}
+
+// 预渲染：4 个色档 × 26 字母 + 4 个圆点。之后每帧只是 drawImage + globalAlpha。
+function buildSprites() {
+  const size = Math.ceil(cellPx) + 2;
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  SPR = []; DOT = [];
+  for (let tint = 0; tint < 4; tint++) {
+    const [cr, cg, cb] = colorFor(255, tint);
+    const col = `rgb(${cr},${cg},${cb})`;
+
+    const row = [];
+    for (let ci = 0; ci < chars.length; ci++) {
+      const cv = document.createElement("canvas");
+      cv.width = cv.height = size;
+      const c = cv.getContext("2d");
+      c.fillStyle = col;
+      c.textAlign = "center";
+      c.textBaseline = "middle";
+      // 字高 10.5mm / pitch 16.58mm ≈ 占格 63%
+      c.font = `${Math.round(cellPx * (GEO.letterSize / GEO.pitch) * 1.04)}px ${GLYPH_FONT}`;
+      c.fillText(chars[ci], size / 2, size * 0.52);
+      row.push(cv);
+    }
+    SPR.push(row);
+
+    const dot = document.createElement("canvas");
+    dot.width = dot.height = size;
+    const dc = dot.getContext("2d");
+    const rad = cellPx * (GEO.dotCavity / GEO.pitch) / 2;
+    const g = dc.createRadialGradient(size / 2, size / 2, rad * 0.80, size / 2, size / 2, rad);
+    g.addColorStop(0, col); g.addColorStop(0.55, col); g.addColorStop(1, "rgba(0,0,0,0)");
+    dc.fillStyle = g;
+    dc.beginPath(); dc.arc(size / 2, size / 2, rad, 0, Math.PI * 2); dc.fill();
+    DOT.push(dot);
+  }
+}
+
+// 蛇形走线 → 物理行列
+function ledPos(i) {
+  if (i < LETTER_LEDS) {
+    const row = Math.floor(i / GEO.cols);
+    const raw = i % GEO.cols;
+    const col = row % 2 === 0 ? raw : GEO.cols - 1 - raw;
+    return {
+      x: padPx + col * cellPx,
+      y: padPx + row * cellPx,
+      glyph: GRID[row].charCodeAt(col) - 65,
+    };
+  }
+  // 四角分钟点：在字面外框的四角（0=左上 1=右上 2=左下 3=右下）
+  const k = i - LETTER_LEDS;
+  const cx = (k % 2 === 0 ? padPx * 0.5 : canvas.width - padPx * 0.5);
+  const cy = (k < 2 ? padPx * 0.5 : canvas.height - padPx * 0.5);
+  return { x: cx - cellPx / 2, y: cy - cellPx / 2, glyph: -1 };
+}
+
+function draw() {
+  if (!ectx || !(cellPx > 0) || !SPR.length) return { lit: 0, maxv: 0, avg: 0 };
+  const W2 = canvas.width, H2 = canvas.height;
+  const rgb = OUT_RGB;
+
+  // --- 发光层：逐灯画（彩色 sprite × 亮度） ---
+  ectx.globalCompositeOperation = "source-over";
+  ectx.globalAlpha = 1;
+  ectx.clearRect(0, 0, W2, H2);
+  ectx.globalCompositeOperation = "lighter";
+
+  let lit = 0, maxv = 0, sum = 0;
+  for (let i = 0; i < TOTAL; i++) {
+    const level = rgb[i * 3];
+    if (level === 0) continue;
+    const tint = SIM_TINT[i];
+    const pos = ledPos(i);
+    const sprite = pos.glyph < 0 ? DOT[tint] : SPR[tint][pos.glyph];
+    if (!sprite) continue;
+    ectx.globalAlpha = Math.min(1, (level / 255) * P.exposure);
+    ectx.drawImage(sprite, pos.x, pos.y, cellPx, cellPx);
+    lit++; sum += level; if (level > maxv) maxv = level;
+  }
+
+  // --- 底板 ---
+  ctx.globalCompositeOperation = "source-over";
+  ctx.globalAlpha = 1;
+  ctx.filter = "none";
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, W2, H2);
+
+  // --- 泛光 + 实体（叠加，模拟灯光透过镂空与扩散板） ---
+  ctx.globalCompositeOperation = "lighter";
+  if (P.bloom > 0) {
+    ctx.filter = `blur(${Math.max(2, cellPx * 0.30)}px)`;
+    ctx.globalAlpha = P.bloom * 0.75;
+    ctx.drawImage(emit, 0, 0);
+    ctx.filter = `blur(${Math.max(1, cellPx * 0.07)}px)`;
+    ctx.globalAlpha = P.bloom * 0.55;
+    ctx.drawImage(emit, 0, 0);
+    ctx.filter = "none";
+  }
+  ctx.globalAlpha = 1;
+  ctx.drawImage(emit, 0, 0);
+
+  // --- 格栅与外框：压在发光之上，模拟实体塑料挡光 ---
+  if (P.grid) {
+    ctx.globalCompositeOperation = "source-over";
+    const wallPx = Math.max(1, GEO.gridWall * (cellPx / GEO.pitch));
+    ctx.strokeStyle = "rgba(0,0,0,0.75)";
+    ctx.lineWidth = wallPx;
+    ctx.beginPath();
+    for (let c = 1; c < GEO.cols; c++) {
+      const x = padPx + c * cellPx;
+      ctx.moveTo(x, padPx); ctx.lineTo(x, padPx + GEO.rows * cellPx);
+    }
+    for (let r = 1; r < GEO.rows; r++) {
+      const y = padPx + r * cellPx;
+      ctx.moveTo(padPx, y); ctx.lineTo(padPx + GEO.cols * cellPx, y);
+    }
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(0,0,0,0.95)";
+    ctx.lineWidth = wallPx * 2;
+    ctx.strokeRect(padPx, padPx, GEO.cols * cellPx, GEO.rows * cellPx);
+    ctx.globalCompositeOperation = "lighter";
+  }
+  return { lit, maxv, avg: lit ? sum / lit : 0 };
+}
+
+/* ===================== 10. UI 与主循环 ===================== */
+const ui = {};
+["play","speed","scrub","state","show","numbersbtn","panel"].forEach(k => ui[k] = document.getElementById(k));
+const hud = {
+  t: document.getElementById("hudt"), clock: document.getElementById("hudclock"),
+  lit: document.getElementById("hudlit"), max: document.getElementById("hudmax"),
+  avg: document.getElementById("hudavg"), state: document.getElementById("hudstate"),
+};
+
+let t = 0, playing = true, lastFrame = 0, frameNo = 0, speed = 1;
+let clockH = 10, clockM = 9, clockLit = timeToLit(clockH, clockM);
+
+// 参数绑定：所有 id 为 p_xxx 的控件自动读写 P.xxx
+function bindParams() {
+  document.querySelectorAll("[id^='p_']").forEach(el => {
+    const key = el.id.slice(2);
+    const isCheck = el.type === "checkbox";
+    const read = () => {
+      if (isCheck) P[key] = el.checked;
+      else if (el.type === "number" || el.type === "range") P[key] = parseFloat(el.value);
+      else P[key] = el.value;
+      const lbl = document.getElementById("v_" + key);
+      if (lbl) lbl.textContent = (typeof P[key] === "number") ? (Number.isInteger(P[key]) ? P[key] : P[key].toFixed(3)) : P[key];
+      if (key === "starCount" || key === "peak" || key === "brightFrac" || key === "perMin" || key === "perMax" || key === "seed") rebuildStars();
+      if (key === "curve") updateCurveButtons();
+      if (key === "temp") updateTempButtons();
+    };
+    el.addEventListener("input", read);
+    el.addEventListener("change", read);
+    read();
+  });
+  document.querySelectorAll("[data-curve]").forEach(b => b.addEventListener("click", () => {
+    P.curve = b.dataset.curve; updateCurveButtons();
+  }));
+  document.querySelectorAll("[data-temp]").forEach(b => b.addEventListener("click", () => {
+    P.temp = b.dataset.temp; updateTempButtons();
+  }));
+}
+function updateCurveButtons() {
+  document.querySelectorAll("[data-curve]").forEach(b => b.classList.toggle("on", b.dataset.curve === P.curve));
+}
+function updateTempButtons() {
+  document.querySelectorAll("[data-temp]").forEach(b => b.classList.toggle("on", b.dataset.temp === P.temp));
+}
+
+ui.play.addEventListener("click", () => {
+  playing = !playing;
+  ui.play.textContent = playing ? "暂停" : "继续";
+  ui.play.classList.toggle("on", !playing);
+});
+document.getElementById("speed").addEventListener("input", (e) => {
+  speed = parseFloat(e.target.value);
+  document.getElementById("speedv").textContent = speed.toFixed(1) + "×";
+});
+ui.scrub.addEventListener("input", (e) => { t = parseFloat(e.target.value); });
+
+let showIdx = 0, showT = 0, showing = false;
+const SHOW = [
+  ["portal", 14], ["ripple", 2.4], ["connect", 11], ["ntp", 6], ["running", 12], ["error", 8], ["reset", 3], ["running", 8],
+];
+ui.show.addEventListener("click", () => {
+  showing = !showing; showIdx = 0; showT = 0; t = 0;
+  ui.show.classList.toggle("on", showing);
+  ui.show.textContent = showing ? "停止序列" : "播放完整状态序列";
+  if (showing) { ui.state.value = SHOW[0][0]; }
+});
+ui.state.addEventListener("change", () => { showing = false; ui.show.classList.remove("on"); ui.show.textContent = "播放完整状态序列"; t = 0; });
+
+let numbersOn = false;
+ui.numbersbtn.addEventListener("click", () => {
+  numbersOn = !numbersOn;
+  ui.numbersbtn.classList.toggle("on", numbersOn);
+  document.getElementById("numbers").classList.toggle("on", numbersOn);
+  layout();
+});
+function renderNumbers() {
+  if (!numbersOn) return;
+  const rows = [];
+  rows.push("<table><tr><td>#</td><td>格子</td><td>alpha</td><td>rgb</td><td>色档</td></tr>");
+  for (let i = 0; i < TOTAL; i++) {
+    const lvl = OUT_RGB[i * 3];
+    if (lvl === 0 && i >= LETTER_LEDS) continue;
+    const pos = ledPos(i);
+    const [r, g, b] = colorFor(lvl, SIM_TINT[i]);
+    const cell = i < LETTER_LEDS ? `${Math.floor(i / 11)},${i % 11} ${GRID[Math.floor(i / 11)][i % 11]}` : `角点 ${i - LETTER_LEDS}`;
+    rows.push(`<tr><td>${i}</td><td class="cell">${cell}</td><td>${SIM_ALPHA[i].toFixed(3)}</td>` +
+      `<td><span class="sw" style="background:rgb(${r},${g},${b})"></span>${r},${g},${b}</td><td>${SIM_TINT[i]}</td></tr>`);
+  }
+  rows.push("</table>");
+  document.getElementById("numbers").innerHTML = rows.join("");
+}
+
+function loop(now) {
+  const dt = lastFrame ? Math.min(0.1, (now - lastFrame) / 1000) : 0;
+  lastFrame = now;
+  frameNo++;
+
+  if (playing) t += dt * speed;
+  if (showing) {
+    showT += dt;
+    if (showT > SHOW[showIdx][1]) {
+      showT = 0; showIdx = (showIdx + 1) % SHOW.length;
+      ui.state.value = SHOW[showIdx][0];
+    }
+  }
+
+  // 时钟：默认跟随真实时间，整分钟切换时做淡入淡出
+  const realNow = new Date();
+  const nh = realNow.getHours(), nm = realNow.getMinutes();
+  if (nh !== clockH || nm !== clockM) {
+    clockH = nh; clockM = nm; clockLit = timeToLit(clockH, clockM);
+  }
+
+  const state = ui.state.value;
+  const alphas = sim(t, state, clockLit);
+  quantize(alphas, frameNo);
+  const stats = draw();
+
+  hud.t.textContent = t.toFixed(2) + "s";
+  hud.clock.textContent = String(clockH).padStart(2, "0") + ":" + String(clockM).padStart(2, "0");
+  hud.lit.textContent = stats.lit;
+  hud.max.textContent = stats.maxv;
+  hud.avg.textContent = stats.avg.toFixed(1);
+  hud.state.textContent = state + (showing ? " · 序列" : "");
+  if (numbersOn && frameNo % 8 === 0) renderNumbers();
+  if (frameNo % 30 === 0) {
+    const tbl = [0.05, 0.10, 0.20, 0.30, 0.40, 0.55, 1.0]
+      .map(a => `${a.toFixed(2)}→${Math.round(Math.pow(a, P.gamma) * 255)}`).join("  ");
+    const el = document.getElementById("alphaTable");
+    if (el) el.textContent = "α → 码值： " + tbl;
+  }
+  requestAnimationFrame(loop);
+}
+
+/* ===================== 11. 导出 ===================== */
+function download(name, text, type) {
+  const blob = new Blob([text], { type: type || "text/plain;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+document.getElementById("expParams").addEventListener("click", () => {
+  const json = JSON.stringify(P, null, 2);
+  navigator.clipboard?.writeText(json);
+  download("anim_params.json", json, "application/json");
+});
+document.getElementById("expLink").addEventListener("click", () => {
+  const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(P))));
+  const url = location.href.split("#")[0] + "#p=" + b64;
+  navigator.clipboard?.writeText(url);
+  location.hash = "p=" + b64;
+});
+document.getElementById("expGold").addEventListener("click", () => {
+  // 10 秒 @ 10fps 的 golden 帧：t_ms,led,alpha,r,g,b
+  const lines = ["t_ms,led,alpha,level,r,g,b   # level = 发给 WS2812 的 8bit 值"];
+  const state = ui.state.value;
+  for (let f = 0; f <= 100; f++) {
+    const tt = f * 0.1;
+    const a = sim(tt, state, clockLit);
+    quantize(a, f);
+    for (let i = 0; i < TOTAL; i++) {
+      const lvl = OUT_RGB[i * 3];
+      if (lvl === 0) continue;
+      const [r, g, b] = colorFor(lvl, SIM_TINT[i]);
+      lines.push(`${Math.round(tt * 1000)},${i},${a[i].toFixed(6)},${lvl},${r},${g},${b}`);
+    }
+  }
+  download(`golden_${state}.csv`, lines.join("\n"), "text/csv");
+});
+document.getElementById("expPng").addEventListener("click", () => {
+  const a = document.createElement("a");
+  a.href = canvas.toDataURL("image/png");
+  a.download = "panel_" + ui.state.value + ".png";
+  a.click();
+});
+
+/* ===================== 12. 启动 ===================== */
+function loadFromQuery() {
+  const q = new URLSearchParams(location.search);
+  if (q.has("state")) { ui.state.value = q.get("state"); showing = false; }
+  if (q.has("t")) t = parseFloat(q.get("t")) || 0;
+  if (q.has("pause")) { playing = q.get("pause") !== "0"; ui.play.textContent = playing ? "暂停" : "继续"; }
+  if (q.has("exposure")) P.exposure = parseFloat(q.get("exposure"));
+  if (q.has("curve")) P.curve = q.get("curve");
+  if (q.has("temp")) P.temp = q.get("temp");
+  if (q.has("hideText")) P.hideText = q.get("hideText") === "1";
+}
+
+function loadFromHash() {
+  const m = /#p=(.+)$/.exec(location.hash || "");
+  if (!m) return;
+  try { Object.assign(P, JSON.parse(decodeURIComponent(escape(atob(m[1]))))); } catch (e) { console.warn("参数解析失败", e); }
+}
+function syncControls() {
+  document.querySelectorAll("[id^='p_']").forEach(el => {
+    const key = el.id.slice(2);
+    if (!(key in P)) return;
+    if (el.type === "checkbox") el.checked = !!P[key];
+    else el.value = P[key];
+    const lbl = document.getElementById("v_" + key);
+    if (lbl) lbl.textContent = typeof P[key] === "number"
+      ? (Number.isInteger(P[key]) ? P[key] : P[key].toFixed(3)) : P[key];
+  });
+  updateCurveButtons(); updateTempButtons();
+}
+
+// 字体加载完再建 sprite，否则会用回退字体渲染
+layout();                                    // 先用回退字形把屏铺上，字体到位再重建
+if (document.fonts && document.fonts.load) {
+  document.fonts.load('40px "Allerta Stencil"').then(() => layout()).catch(() => {});
+  document.fonts.addEventListener?.("loadingdone", () => layout());
+}
+window.addEventListener("resize", () => layout());
+loadFromHash();
+loadFromQuery();
+syncControls();
+rebuildStars();
+bindParams();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
