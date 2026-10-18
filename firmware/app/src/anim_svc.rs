@@ -16,11 +16,12 @@ use wordclock_core::Frame;
 
 use crate::leddrv::LedDriver;
 
-// 实测（ESP32-C5 + legacy RMT，mem_block_num=4）：
-//   单帧 show_rgb 阻塞 20ms（系统静默）~ 175ms（WiFi 活跃）
-//   所以真实可达帧率是 5~10fps，不是 25fps。
-// 取 8fps：既留出余量给 WiFi/HTTP，又保证动效每一步至少跨 1~2 帧。
-// 所有动效节奏都已按"一帧 ≈ 125ms"重新定标（见 wordclock-core::anim）。
+// 实测（ESP32-C5，legacy RMT，**release 构建**）：
+//   单帧 show_rgb ≈ 1.6~3.4ms —— 就是 114×24bit 在 800kHz 上的线材时间，
+//   即驱动已到物理上限，不需要 DMA。
+//   （曾经的 175ms 是 **debug 构建 + Flash 状态损坏** 造成的假象，见 docs/development.md）
+// 取 8fps：给 WiFi/HTTP 留余量，同时保证动效每一步至少跨 1~2 帧；
+// 所有动效节奏按"一帧 ≈ 125ms"定标（见 wordclock-core::anim）。
 const FRAME_MS: u64 = 125; // ~8fps
 const DEFAULT_FADE_MS: u32 = 700;
 
@@ -147,9 +148,9 @@ impl AnimSvc {
 
 /// 3u²-2u³，u ∈ 0..=1000 → 0..=1000
 impl AnimSvc {
-    /// 每 5s 打一行实测统计：帧率 + 单帧写入耗时
+    /// 每 30s 打一行实测统计：帧率 + 单帧写入耗时（排查性能时看这个）
     fn maybe_log(&mut self) {
-        if self.stat_since.elapsed() < Duration::from_secs(5) {
+        if self.stat_since.elapsed() < Duration::from_secs(30) {
             return;
         }
         let el = self.stat_since.elapsed().as_micros().max(1) as u64;

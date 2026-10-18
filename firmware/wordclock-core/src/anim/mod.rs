@@ -217,8 +217,12 @@ impl Anim {
     fn mods(&self, state: State, t_ms: u32, l: &mut Lights) {
         match state {
             State::Boot => {
-                // ① 从右下 K 起点的对角快扫（功能性自检）② KLARA 逐字常亮
-                band(l, Axis::DiagR, t_ms, 1600, 1250, 420);
+                // ① 从右下 K 起点的对角快扫（功能性自检）——**只跑一遍**，
+                //    之后保持"KLARA 常亮 + planet 呼吸"的稳定态，避免开机等待
+                //    期间面板定格在扫带的随机位置
+                if t_ms < 1600 {
+                    band(l, Axis::DiagR, t_ms, 1600, 1250, 420);
+                }
                 spell(l, BOOT_NAME, t_ms, 900, 500, 500, 950);
             }
             State::ApStart => label_blink(l, LABEL_AP, t_ms, 4000, 550, 0),

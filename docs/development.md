@@ -85,6 +85,23 @@ python3 tools/uart_sniff.py
 | 日志里看不到 Rust `info!` | Rust log 只走主控制台 | `app/sdkconfig.defaults` 注释 |
 | esp-idf-sys 找不到 sdkconfig.defaults | 需显式指定 | `firmware/.cargo/config.toml` 注释 |
 
+## 启动即崩循环 → 擦 Flash
+
+现象：串口里反复 `Guru Meditation ... Illegal instruction`，`app_main` 之前的
+日志都没有，`grep -c '^ESP-ROM'` 显示几十次重启。
+
+这不是应用代码的问题（debug/release/全量重建都一样），是 **Flash 状态损坏**
+（反复烧写后 NVS/PHY 分区不一致）。处置：
+
+```bash
+espflash erase-flash --port /dev/ttyACM0     # 清整片（会丢 WiFi 凭据，之后进配网）
+espflash flash target/riscv32imac-esp-espidf/release/word-clock --port /dev/ttyACM0
+```
+
+顺带一条**性能陷阱**：dev（debug）构建里 `leddrv::encode()` 慢几十倍，
+实测单帧写入 175ms（release 只要 1.6~3.4ms = 线材物理时间）。
+调灯效一定要用 `--release`，否则会误判成"面板支撑不了高帧率"。
+
 ## 动效调试（tools/anim_lab）
 
 灯板动效先在宿主机浏览器里调，再落固件（规格见 [animation.md](animation.md)）：

@@ -60,7 +60,7 @@ fn main() -> Result<()> {
     let peripherals = Peripherals::take()?;
 
     // LED 初始化 + 上电自检（RGB 全扫一遍，验证灯链与供电后再进网络流程）
-    #[allow(deprecated)] // legacy rmt api，同 leddrv.rs 注释
+    #[allow(deprecated)] // legacy rmt api，见 leddrv.rs 文件头
     let mut leds = leddrv::LedDriver::new(peripherals.rmt.channel0, peripherals.pins.gpio4)?;
 
     // 动效服务：所有灯效都从这里出帧（状态见 wordclock_core::anim::State）
@@ -83,9 +83,11 @@ fn main() -> Result<()> {
     info!("boot: 开屏动效（自检扫 + KLARA）");
     anim.run_for(&mut leds, None, boot_color, Duration::from_millis(3600))?;
 
-    // USB 重枚举后主机有 ~6s 空窗：停 10s 保证串口监听接上后再打 WiFi 日志
+    // USB 重枚举后主机有 ~6s 空窗：等 10s 保证串口监听接上后再打 WiFi 日志。
+    // 关键：这段时间**继续 tick**（而不是 sleep），否则面板会定格在开屏动画的
+    // 随机某一帧。现在扫带只跑一遍，等待期间是稳定态：KLARA 常亮 + planet 呼吸。
     info!("boot: waiting 10s for console attach...");
-    std::thread::sleep(Duration::from_secs(10));
+    anim.run_for(&mut leds, None, boot_color, Duration::from_secs(10))?;
 
     let sysloop = esp_idf_svc::eventloop::EspSystemEventLoop::take()?;
     let nvs = esp_idf_svc::nvs::EspDefaultNvsPartition::take()?;
