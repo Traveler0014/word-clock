@@ -192,7 +192,7 @@
     </fieldset>
 
     <fieldset id="v2params">
-      <legend>星空语言参数</legend>
+      <legend>生成器参数 · 星场调制</legend>
       <div class="row"><span>风 周期 s</span><input type="number" id="p_windPeriod" value="5.5" step="0.1" style="width:56px"></div>
       <div class="row"><span>风 宽度</span><input type="number" id="p_windWidth" value="0.2" step="0.01" style="width:56px"></div>
       <div class="row"><span>风 低谷倍</span><input type="number" id="p_windFloor" value="0.3" step="0.05" style="width:56px"></div>
@@ -203,11 +203,11 @@
       <div class="row"><span>余烬 搏动 s</span><input type="number" id="p_emberPeriod" value="3.5" step="0.1" style="width:56px"></div>
       <div class="row"><span>升级 演示 s</span><input type="number" id="p_otaDemo" value="14" step="0.5" style="width:56px"></div>
       <div class="row"><span>停滞 抽搐 s</span><input type="number" id="p_revivePeriod" value="4" step="0.5" style="width:56px"></div>
-      <p class="hint">这一组是"主题描述符里的数字"：LANG 表只声明"哪些调制生效"，具体数值全在这里。</p>
+      <p class="hint">描述符只声明"哪个状态用哪些生成器"，数值全部在这里。两套主题共用同一份解释器。</p>
     </fieldset>
 
     <fieldset id="v1params">
-      <legend>旧母题参数（v1）</legend>
+      <legend>生成器参数 · 叠加层</legend>
       <div class="row"><span>扫带周期 s</span><input type="number" id="p_sweepPeriod" value="5.5" step="0.1" style="width:56px"></div>
       <div class="row"><span>扫带宽度 列</span><input type="number" id="p_sweepWidth" value="2.2" step="0.1" style="width:56px"></div>
       <div class="row"><span>扫带峰值</span><input type="number" id="p_sweepPeak" value="0.2" step="0.01" style="width:56px"></div>
@@ -389,308 +389,295 @@ function twinkle(u) {
   }
 }
 
-/* ===================== 5. 状态母题 ===================== */
+/* ===================== 5b. 固定状态清单（固件拥有，主题只能"怎么表现"） =====================
+   这是固件与主题之间的契约：状态的**集合**由固件决定，主题不能增删，
+   只能决定每个状态长什么样、以及状态之间怎么过渡。
+   任何主题都缺态 → 必须有兜底，否则一个坏主题可以让"出错"毫无表示。
+*/
+const CANON = [
+  ["boot",                 "启动自检"],
+  ["ap_start",             "热点启动"],
+  ["wifi_connecting",      "WiFi 连接中"],
+  ["provisioning_wait",    "等待配置"],
+  ["provisioning_client",  "客户端已连入"],
+  ["ntp_syncing",          "NTP 同步中"],
+  ["running",              "运行（时间）"],
+  ["minute_change",        "换词（每分钟）"],
+  ["ota_download",         "OTA 下载"],
+  ["ota_apply",            "OTA 校验/写入"],
+  ["error_network",        "错误 · 网络"],
+  ["error_time",           "错误 · 时间"],
+  ["factory_reset",        "恢复出厂"],
+  ["deep_night",           "深夜（仅星空）"],
+  ["apply_config",         "应用配置并重启"],
+];
+
+/* ===================== 5c. 生成器集合（封闭） =====================
+   两套主题共用这一份代码。主题 = 描述符：
+     { name, base, transition, states: { <canonical id>: { stars?, mods?, text? } } }
+   stars 是基底（乘性调制源），mods 是叠加层，text 是时间文字层。
+   新增效果 = 新增一个生成器（固件要改）；改主题 = 改描述符（固件不改）。
+*/
+
+// 输出缓冲：114 灯的感知 alpha + 每颗的色档
+let SIM_ALPHA = new Float32Array(TOTAL);
+let SIM_TINT = new Uint8Array(TOTAL);
+
 const clamp01 = (x) => x < 0 ? 0 : x > 1 ? 1 : x;
 const smooth = (x) => { const t = clamp01(x); return t * t * (3 - 2 * t); };
-
-function gauss(d, w) { return Math.exp(-(d * d) / (w * w)); }
-
-// 柔光扫带：一列高斯光从右往左（真实阅读方向感）；无硬边 → 不像跑马灯
-function motifSweep(t, out) {
-  const n = P.sweepPeriod;
-  const pos = ((t / n) % 1) * (GEO.cols + 2 * P.sweepWidth) - P.sweepWidth;
-  for (let r = 0; r < GEO.rows; r++) {
-    for (let c = 0; c < GEO.cols; c++) {
-      const d = Math.abs(c - pos);
-      const a = P.sweepPeak * gauss(d, P.sweepWidth);
-      const i = xyToIndex(r, c);
-      out[i] = Math.max(out[i], a);
-    }
-  }
-}
-
-// 星渐现：一颗接一颗点亮（夜幕降临），到上限后整体淡出重来
-function motifEmerge(t) {
-  const fade = P.emergeFade, hold = 3.0;
-  const cycle = P.emergeMax * P.emergeStep + fade + hold;
-  const tt = t % cycle;
-  const res = new Float32Array(TOTAL);
-  for (let k = 0; k < STARS.length && k < P.emergeMax; k++) {
-    const birth = k * P.emergeStep;
-    const a = smooth((tt - birth) / fade);
-    if (a <= 0) continue;
-    // 收尾统一淡出
-    const outStart = P.emergeMax * P.emergeStep + fade;
-    const die = tt > outStart ? smooth((tt - outStart) / hold) : 0;
-    res[STARS[k].led] = Math.max(res[STARS[k].led], P.emergePeak * a * (1 - die));
-  }
-  return res;
-}
-
-// 四角点 chase：4 颗分钟点依次点亮（每颗 chaseStep 秒），只有 1 颗亮着
-// —— 物理上远离字母阵，所以是"最小面积的跑马灯"，不容易显土
-function motifCornerChase(t, out) {
-  const step = P.chaseStep;
-  const u = (t / step) % 4;
-  const k = Math.floor(u);
-  const frac = u - k;
-  // 亮 60% 的时间，剩下熄灭，形成"跳"的手感
-  const env = frac < 0.62 ? 1 : Math.max(0, 1 - (frac - 0.62) / 0.38);
-  const a = P.chasePeak * env;
-  out[LETTER_LEDS + k] = Math.max(out[LETTER_LEDS + k], a);
-}
-
-// 涟漪：从左下扩散（单次）
-function motifRipple(t, out) {
-  const u = t / P.rippleDur;
-  if (u > 1.35) return;
-  const c0 = 0, r0 = GEO.rows - 1;
-  for (let r = 0; r < GEO.rows; r++) {
-    for (let c = 0; c < GEO.cols; c++) {
-      const d = Math.hypot((c - c0) / GEO.cols, (r - r0) / GEO.rows) * 1.6;
-      const w = 0.22;
-      const a = 0.28 * gauss(d - u * 1.6, w) * (u < 1 ? 1 : (1.35 - u) / 0.35);
-      const i = xyToIndex(r, c);
-      out[i] = Math.max(out[i], a);
-    }
-  }
-}
-
-// 写字进度：按行主序点亮到 progress
-function motifProgress(progress, out) {
-  for (let r = 0; r < GEO.rows; r++) {
-    for (let c = 0; c < GEO.cols; c++) {
-      const k = r * GEO.cols + c;
-      const a = k < progress * LETTER_LEDS ? 0.5 : 0.0;
-      const i = xyToIndex(r, c);
-      out[i] = Math.max(out[i], a);
-    }
-  }
-}
-
-
-/* ===================== 5b. 星空语言（v2） =====================
-   同一个星场，状态只调六个轴：
-     rate    快慢    0=冻结  1=常态  1.3=躁动
-     peakMul 峰值    0.3=天暗下来  1=常态
-     coh     相干度  0=各自闪     1=全板同相（只用于短促的"系统同意"）
-     gate    密度    进度类状态用它"填满夜空"
-     hue     色调    0=星色  1=整体偏暖（异常）
-     event   事件    流星 / 落日 / 余烬
-   没有"另一个效果"，只有同一片天空的另一种状态。
-*/
-const LANG = {
-  s_running: { label: "运行",           rate: 1.0,  peakMul: 1.0,  text: true },
-  s_idle:    { label: "星空基线",        rate: 1.0,  peakMul: 1.0 },
-  s_connect: { label: "尝试连接·风",     rate: 1.2,  peakMul: 1.0,
-               wind: { axis: "x", period: 5.5, floor: 0.30, width: 0.20 } },
-  s_portal:  { label: "等待配置·潮汐",   rate: 0.9,  peakMul: "tide",
-               tide: { period: 26, lo: 0.22, hi: 1.0 } },
-  s_success: { label: "连接成功·流星",   rate: 1.0,  peakMul: 1.0,
-               shooting: { every: 3.5, dur: 1.1 } },
-  s_sync:    { label: "同步·同相波",     rate: 1.35, peakMul: 1.0, coh: 0.55,
-               wind: { axis: "y", period: 3.2, floor: 0.35, width: 0.16 } },
-  s_ota:     { label: "升级·星等推进",   rate: 1.0,  peakMul: 1.0, fill: true },
-  s_error:   { label: "出错·冻结余烬",   rate: 0.12, peakMul: 0.30, hue: 1, ember: true },
-  s_blocked: { label: "阻塞·停滞",       rate: 0.0,  peakMul: 1.0, freezeAt: 3.0, revive: 4 },
-  s_reset:   { label: "归零·星落",       rate: 1.0,  peakMul: 1.0, fall: true },
-};
-
+const gauss = (d, w) => Math.exp(-(d * d) / (w * w));
 const ledRC = (led) => [Math.floor(led / GEO.cols), led % GEO.cols];
 
-function simStars(t, state, out) {
-  const mod = LANG[state];
-  if (!mod) return false;
+// 叠加：add / max / mul
+function put(i, a, blend, tint) {
+  if (!(a > 0)) return;
+  const cur = SIM_ALPHA[i];
+  let v;
+  if (blend === "mul") v = cur * a;
+  else if (blend === "max") v = a > cur ? a : cur;
+  else v = cur + a;
+  SIM_ALPHA[i] = v > 1 ? 1 : v;
+  if (tint != null && SIM_ALPHA[i] > 0.001) SIM_TINT[i] = tint;
+}
 
-  const tt = mod.freezeAt != null ? mod.freezeAt : t * mod.rate;
+/* ---------- 基底：星场（所有状态共用，参数来自 P + 状态覆盖） ---------- */
+function genStars(ov, t) {
+  const rate = ov.rate != null ? ov.rate : 1;
+  const tt = ov.freezeAt != null ? ov.freezeAt : t * rate;
 
-  // 整场包络：潮汐 = 极慢的整体明暗（"呼吸"但不齐一，因为相位仍各自独立）
-  let peakMul = mod.peakMul === "tide"
-    ? P.tideLo + (1 - P.tideLo) * (0.5 - 0.5 * Math.cos(2 * Math.PI * t / P.tidePeriod))
-    : (mod.peakMul != null ? mod.peakMul : 1);
+  let peakMul = ov.peakMul != null ? ov.peakMul : 1;
+  if (ov.tide) {
+    peakMul = P.tideLo + (1 - P.tideLo) * (0.5 - 0.5 * Math.cos(2 * Math.PI * t / P.tidePeriod));
+  }
 
-  // 进度类：星一颗颗"够得着"
   let gate = 1;
-  if (mod.fill) gate = Math.min(1, (t % P.otaDemo) / (P.otaDemo * 0.86));
+  if (ov.gate != null) {
+    gate = ov.gate === "demo" ? Math.min(1, (t % P.otaDemo) / (P.otaDemo * 0.86)) : ov.gate;
+  }
+  const fallP = ov.fall ? Math.min(1.25, t / 3.2) : null;
 
-  // 星落：按阅读顺序熄灭
-  const fallP = mod.fall ? Math.min(1.25, t / 3.2) : null;
-
-  // 停滞时的"抽搐"：每 revive 秒有一颗星试图亮一下（系统还在挣扎）
+  // 停滞抽搐：每 revivePeriod 秒有一颗星试图亮一下
   let twitchLed = -1, twitchA = 0;
-  if (mod.revive) {
+  if (ov.twitch) {
     const ph = (t % P.revivePeriod) / P.revivePeriod;
-    if (ph < 0.25) {
-      const k = Math.floor(t / P.revivePeriod) % Math.max(1, STARS.length);
-      twitchLed = STARS[k] ? STARS[k].led : -1;
+    if (ph < 0.25 && STARS.length) {
+      const k = Math.floor(t / P.revivePeriod) % STARS.length;
+      twitchLed = STARS[k].led;
       twitchA = 0.5 * Math.sin(Math.PI * ph / 0.25);
     }
   }
 
   const n = STARS.length;
   for (let k = 0; k < n; k++) {
-    const s = STARS[k];
-    const [r, c] = ledRC(s.led);
+    const st = STARS[k];
+    const [r, c] = ledRC(st.led);
     let pm = peakMul;
 
-    // 风：只吹亮"本来就会亮"的星，绝不凭空点亮新格子
-    if (mod.wind) {
-      const pos = mod.wind.axis === "y" ? r / GEO.rows : c / GEO.cols;
+    if (ov.wind) {                             // 乘性衰减波：绝不点亮新格子
+      const pos = ov.wind.axis === "y" ? r / GEO.rows : c / GEO.cols;
       const crest = ((t / P.windPeriod) % 1) * 1.4 - 0.2;
-      const g = Math.exp(-Math.pow((pos - crest) / P.windWidth, 2));
-      // 衰减式：波峰处保持用户设定的峰值，其余压到 floor 倍。
-      // 绝不超过峰值 —— 否则星会亮过时间文字，层级就塌了。
+      const g = gauss(pos - crest, P.windWidth);
       pm *= P.windFloor + (1 - P.windFloor) * g;
     }
+    if (k / n > gate) pm = 0;
+    if (fallP != null && st.led / LETTER_LEDS < fallP * 1.1) pm = 0;
 
-    if (k / n > gate) pm = 0;                    // 星等门槛
-    if (fallP != null && s.led / LETTER_LEDS < fallP * 1.1) pm = 0;   // 星落
-
-    let u = ((tt / s.period) + s.phase) % 1;
-    if (mod.coh) u += (0.5 - u) * mod.coh;       // 相位收拢 → 同相脉动
-    const a = pm * (P.floor + (s.peak - P.floor) * twinkle(u));
-    if (a <= out[s.led]) continue;
-    out[s.led] = a;
-    SIM_TINT[s.led] = mod.hue ? 2 : s.tint;
-  }
-
-  // 余烬：出错时只有那颗暖色 planet 还活着，缓慢搏动
-  if (mod.ember && P.planet) {
-    const m = /^\s*(\d+)\s*,\s*(\d+)\s*$/.exec(P.planetPos);
-    if (m) {
-      const i = xyToIndex(Math.min(GEO.rows - 1, +m[1]), Math.min(GEO.cols - 1, +m[2]));
-      const beat = Math.pow(0.5 - 0.5 * Math.cos(2 * Math.PI * t / P.emberPeriod), 3);
-      out[i] = Math.max(out[i], 0.10 + 0.38 * beat);
-      SIM_TINT[i] = 3;
+    let u = ((tt / st.period) + st.phase) % 1;
+    if (ov.cohere) u += (0.5 - u) * ov.cohere;
+    const a = pm * (P.floor + (st.peak - P.floor) * twinkle(u));
+    if (a > SIM_ALPHA[st.led]) {
+      SIM_ALPHA[st.led] = a;
+      SIM_TINT[st.led] = ov.hue ? 2 : st.tint;
     }
   }
-
-  if (twitchLed >= 0 && twitchA > out[twitchLed]) {
-    out[twitchLed] = twitchA;
+  if (twitchLed >= 0 && twitchA > SIM_ALPHA[twitchLed]) {
+    SIM_ALPHA[twitchLed] = twitchA;
     SIM_TINT[twitchLed] = 0;
   }
-
-  // 流星：一条带尾的对角线飞过（"事件"，不循环重复形状）
-  if (mod.shooting) {
-    const u = (t % P.meteorEvery) / P.meteorDur;
-    if (u <= 1) {
-      const hx = -0.8 + u * (GEO.cols + 1.6);
-      const hy = hx * 0.82;                        // 从左下角斜穿到右下角
-      for (let r = 0; r < GEO.rows; r++) {
-        for (let c = 0; c < GEO.cols; c++) {
-          const d = Math.hypot(c - hx, r - hy);
-          if (d > 4.6) continue;
-          const a = 0.75 * Math.pow(1 - d / 4.6, 1.7) * (1 - u * 0.25);
-          const i = xyToIndex(r, c);
-          if (a > out[i]) { out[i] = a; SIM_TINT[i] = 0; }
-        }
-      }
-    }
-  }
-
-  // 文字层（运行态）
-  if (mod.text && clockLit && !P.hideText) {
-    for (let i = 0; i < LETTER_LEDS; i++) if (clockLit[i]) { out[i] = 1.0; SIM_TINT[i] = 0; }
-    for (let k = 0; k < CORNER_LEDS; k++) {
-      const i = LETTER_LEDS + k;
-      out[i] = clockLit[i] ? 0.85 : 0.0;
-      SIM_TINT[i] = 0;
-    }
-  }
-  return true;
 }
 
-/* ===================== 6. 仿真核心（可直接移植 Rust） ===================== */
-// 返回 114 个「感知 alpha」+ 每颗的色档
-let SIM_ALPHA = new Float32Array(TOTAL);
-let SIM_TINT = new Uint8Array(TOTAL);
+/* ---------- 叠加层生成器 ---------- */
+const GEN = {
+  // 加性光带（v1 的"柔光扫带"）
+  band(g, t) {
+    const period = P.sweepPeriod, width = P.sweepWidth, peak = P.sweepPeak;
+    const pos = ((t / period) % 1) * (GEO.cols + 2 * width) - width;
+    for (let r = 0; r < GEO.rows; r++) {
+      for (let c = 0; c < GEO.cols; c++) {
+        put(xyToIndex(r, c), peak * gauss(c - pos, width), "add", g.tint);
+      }
+    }
+  },
+  // 径向涟漪（单次）
+  ripple(g, t) {
+    const u = t / P.rippleDur;
+    if (u > 1.35) return;
+    const [r0, c0] = g.origin;
+    const env = u < 1 ? 1 : (1.35 - u) / 0.35;
+    for (let r = 0; r < GEO.rows; r++) {
+      for (let c = 0; c < GEO.cols; c++) {
+        const d = Math.hypot((c - c0) / GEO.cols, (r - r0) / GEO.rows) * 1.6;
+        put(xyToIndex(r, c), 0.28 * gauss(d - u * 1.6, 0.22) * env, "add", g.tint);
+      }
+    }
+  },
+  // 四角点 chase（最小面积跑马灯）
+  chase(g, t) {
+    const k = Math.floor((t / P.chaseStep) % 4);
+    const frac = ((t / P.chaseStep) % 4) - k;
+    const env = frac < 0.62 ? 1 : Math.max(0, 1 - (frac - 0.62) / 0.38);
+    put(LETTER_LEDS + k, P.chasePeak * env, "max", g.tint);
+  },
+  // 星渐现（按星表顺序点亮，到上限后整场淡出）
+  ignite(g, t) {
+    const fade = P.emergeFade, hold = 3.0, max = P.emergeMax;
+    const cycle = max * P.emergeStep + fade + hold;
+    const tt = t % cycle;
+    const outStart = max * P.emergeStep + fade;
+    const die = tt > outStart ? smooth((tt - outStart) / hold) : 0;
+    for (let k = 0; k < STARS.length && k < max; k++) {
+      const a = smooth((tt - k * P.emergeStep) / fade);
+      if (a <= 0) continue;
+      put(STARS[k].led, P.emergePeak * a * (1 - die), "max", g.tint != null ? g.tint : 0);
+    }
+  },
+  // 行主序填充（进度类：NTP / OTA / 自检）
+  fillRow(g, t) {
+    const prog = g.progress === "demo" ? Math.min(1, (t % P.otaDemo) / (P.otaDemo * 0.86)) : g.progress;
+    for (let r = 0; r < GEO.rows; r++) {
+      for (let c = 0; c < GEO.cols; c++) {
+        if (r * GEO.cols + c < prog * LETTER_LEDS) put(xyToIndex(r, c), g.peak, "max", g.tint);
+      }
+    }
+  },
+  // 单格脉冲（错误提示 / 余烬）
+  pulse(g, t) {
+    const beat = Math.pow(0.5 - 0.5 * Math.cos(2 * Math.PI * t / g.period), g.sharp != null ? g.sharp : 3);
+    const a = (g.base || 0) + g.peak * beat;
+    const cells = g.cells || [g.cell];
+    for (const [r, c] of cells) put(xyToIndex(r, c), a, "max", g.tint);
+  },
+  // 流星（对角斜穿，带尾）
+  meteor(g, t) {
+    const u = (t % P.meteorEvery) / P.meteorDur;
+    if (u > 1) return;
+    const hx = -0.8 + u * (GEO.cols + 1.6);
+    const hy = hx * 0.82;
+    for (let r = 0; r < GEO.rows; r++) {
+      for (let c = 0; c < GEO.cols; c++) {
+        const d = Math.hypot(c - hx, r - hy);
+        if (d > g.tail) continue;
+        put(xyToIndex(r, c), g.peak * Math.pow(1 - d / g.tail, 1.7) * (1 - u * 0.25), "max", g.tint);
+      }
+    }
+  },
+  // 全屏乘性衰减（归零 / 熄灯）
+  fadeAll(g, t) {
+    const k = 1 - smooth(t / g.dur);
+    for (let i = 0; i < TOTAL; i++) SIM_ALPHA[i] *= k;
+  },
+  // 换词"滴答"：四角点短暂提亮
+  tick(g, t) {
+    const u = t / g.dur;
+    if (u > 1) return;
+    const a = g.peak * (1 - smooth(u));
+    for (let k = 0; k < CORNER_LEDS; k++) put(LETTER_LEDS + k, a, "max", g.tint);
+  },
+};
+
+/* ---------- 解释器：描述符 + 状态 + 时间 → 114 个 alpha ---------- */
+let prevAlpha = new Float32Array(TOTAL);
+let lastState = null, changeAt = -1e9;
+
+function runState(desc, state, t, clockLit) {
+  const entry = desc.states[state] || desc.states._default || {};
+  genStars(entry.stars || {}, t);
+  for (const g of (entry.mods || [])) {
+    const fn = GEN[g.gen];
+    if (fn) fn(g, t);
+  }
+  if (entry.text && clockLit && !P.hideText) {
+    for (let i = 0; i < LETTER_LEDS; i++) if (clockLit[i]) { SIM_ALPHA[i] = 1.0; SIM_TINT[i] = 0; }
+    for (let k = 0; k < CORNER_LEDS; k++) {
+      SIM_ALPHA[LETTER_LEDS + k] = clockLit[LETTER_LEDS + k] ? 0.85 : 0;
+      SIM_TINT[LETTER_LEDS + k] = 0;
+    }
+  }
+}
 
 function sim(t, state, clockLit) {
   const out = SIM_ALPHA;
+  const desc = THEME_DESC[P.theme] || THEME_DESC.stars;
+
+  // 状态切换 → 记住上一帧，做过渡（这就是"动效之间怎么切换"的通用答案）
+  if (state !== lastState) {
+    prevAlpha.set(out);
+    lastState = state;
+    changeAt = t;
+  }
+
   out.fill(0);
+  runState(desc, state, t, clockLit);
 
-  // 星空语言（新）：走统一调制路径
-  if (LANG[state]) { simStars(t, state, out); return out; }
-
-  // ---- 底层：星场（除 portal/ota 外的状态都保留，制造"设备活着"的连续感） ----
-  const starLevel = (state === "reset") ? 0 : 1;
-  if (starLevel) {
-    for (let k = 0; k < STARS.length; k++) {
-      const s = STARS[k];
-      const u = ((t / s.period) + s.phase) % 1;
-      out[s.led] = Math.max(out[s.led], P.floor + (s.peak - P.floor) * twinkle(u));
-      SIM_TINT[s.led] = s.tint;
-    }
-    if (P.planet) {
-      const m = /^\s*(\d+)\s*,\s*(\d+)\s*$/.exec(P.planetPos);
-      if (m) {
-        const r = Math.min(GEO.rows - 1, +m[1]), c = Math.min(GEO.cols - 1, +m[2]);
-        const i = xyToIndex(r, c);
-        // planet：极慢呼吸 12s，暖色，不闪
-        const b = 0.10 + 0.06 * (0.5 - 0.5 * Math.cos(2 * Math.PI * t / 12));
-        out[i] = Math.max(out[i], b);
-        SIM_TINT[i] = 3;
-      }
-    }
-  }
-
-  // ---- 状态母题 ----
-  switch (state) {
-    case "connect":
-      motifSweep(t, out);
-      break;
-    case "portal": {
-      const e = motifEmerge(t);
-      for (let i = 0; i < LETTER_LEDS; i++) if (e[i] > out[i]) { out[i] = e[i]; SIM_TINT[i] = 0; }
-      break;
-    }
-    case "portalDot":
-      motifCornerChase(t, out);
-      break;
-    case "ripple":
-      motifRipple(t, out);
-      break;
-    case "ntp": {
-      const prog = Math.min(1, (t % 6) / 3.2);
-      motifProgress(prog, out);
-      break;
-    }
-    case "ota": {
-      const prog = Math.min(1, (t % 12) / 11);
-      motifProgress(prog, out);
-      break;
-    }
-    case "error": {
-      // 暖色脉冲：中心格，快起慢落，每 5s 一次
-      const per = 5, tt = t % per;
-      const env = tt < 0.18 ? smooth(tt / 0.18) : Math.max(0, 1 - (tt - 0.18) / 1.2);
-      const i = xyToIndex(4, 5);
-      out[i] = Math.max(out[i], P.errPeak * env);
-      SIM_TINT[i] = 3;
-      break;
-    }
-    case "reset": {
-      const u = t / 2.4;
-      const a = 0.5 * Math.max(0, 1 - u);
-      if (a > 0) for (let i = 0; i < LETTER_LEDS; i++) out[i] = Math.max(out[i], a);
-      break;
-    }
-  }
-
-  // ---- 文字层：永远最亮，压过一切 ----
-  if (state === "running" && clockLit && !P.hideText) {
-    for (let i = 0; i < LETTER_LEDS; i++) if (clockLit[i]) { out[i] = 1.0; SIM_TINT[i] = 0; }
-    // 四角分钟点：点亮的用略低亮度，避免抢眼
-    for (let k = 0; k < CORNER_LEDS; k++) {
-      const i = LETTER_LEDS + k;
-      out[i] = clockLit[i] ? 0.85 : 0.0;
-      SIM_TINT[i] = 0;
-    }
-  } else {
-    for (let k = 0; k < CORNER_LEDS; k++) { out[LETTER_LEDS + k] = Math.max(out[LETTER_LEDS + k], 0); }
+  const tr = desc.transition || { dur: 0 };
+  const dur = (tr.dur || 0) / 1000;
+  if (dur > 0 && t > changeAt && t - changeAt < dur) {
+    const k = smooth((t - changeAt) / dur);
+    for (let i = 0; i < TOTAL; i++) out[i] = prevAlpha[i] * (1 - k) + out[i] * k;
   }
   return out;
 }
+
+/* ===================== 5d. 两套主题 = 两份描述符 =====================
+   注意两边的 states 键完全一致（同一份 CANON），只是"怎么表现"不同。
+   切主题不需要改任何代码，也不需要改状态列表。
+*/
+const THEME_DESC = {
+  stars: {
+    name: "星空语言 v2",
+    transition: { dur: 700 },
+    states: {
+      boot:                { stars: { rate: 1.8, peakMul: 0.5 } },
+      ap_start:            { stars: { rate: 1.4 } },
+      wifi_connecting:     { stars: { rate: 1.2, wind: { axis: "x" } } },
+      provisioning_wait:   { stars: { rate: 0.9, tide: true } },
+      provisioning_client: { stars: {}, mods: [{ gen: "meteor", every: 1.8, dur: 1.1, tail: 4.6, peak: 0.75 }] },
+      ntp_syncing:         { stars: { rate: 1.35, cohere: 0.55, wind: { axis: "y" } } },
+      running:             { stars: {}, text: true },
+      minute_change:       { stars: {}, text: true, mods: [{ gen: "tick", dur: 0.12, peak: 0.45 }] },
+      ota_download:        { stars: { gate: "demo" } },
+      ota_apply:           { stars: { gate: "demo", rate: 1.6 } },
+      error_network:       { stars: { rate: 0.12, peakMul: 0.30, hue: 1 },
+                             mods: [{ gen: "pulse", cell: [8, 1], period: 3.5, peak: 0.48, base: 0.10, tint: 3 }] },
+      error_time:          { stars: { rate: 0.10, peakMul: 0.22, hue: 1 },
+                             mods: [{ gen: "pulse", cell: [4, 5], period: 5, peak: 0.35, tint: 3 }] },
+      factory_reset:       { stars: { fall: true } },
+      deep_night:          { stars: { peakMul: 0.7 } },
+      apply_config:        { stars: { rate: 0.5 } },
+    },
+  },
+  motifs: {
+    name: "旧母题 v1",
+    transition: { dur: 300 },
+    states: {
+      boot:                { stars: { rate: 1.8, peakMul: 0.4 } },
+      ap_start:            { stars: {} },
+      wifi_connecting:     { stars: {}, mods: [{ gen: "band", axis: "x", period: 5.5, width: 2.2, peak: 0.40 }] },
+      provisioning_wait:   { stars: {}, mods: [{ gen: "ignite", step: 0.7, fade: 2.4, max: 30, peak: 0.30 }] },
+      provisioning_client: { stars: {}, mods: [{ gen: "ripple", origin: [9, 0], dur: 0.9, peak: 0.28 }] },
+      ntp_syncing:         { stars: {}, mods: [{ gen: "fillRow", progress: "demo", peak: 0.50 }] },
+      running:             { stars: {}, text: true },
+      minute_change:       { stars: {}, text: true, mods: [{ gen: "tick", dur: 0.12, peak: 0.40 }] },
+      ota_download:        { stars: {}, mods: [{ gen: "fillRow", progress: "demo", peak: 0.50 }] },
+      ota_apply:           { stars: {}, mods: [{ gen: "chase", step: 0.8, peak: 0.35 }] },
+      error_network:       { stars: {}, mods: [{ gen: "pulse", cell: [4, 5], period: 5, peak: 0.35, tint: 3 }] },
+      error_time:          { stars: {}, mods: [{ gen: "pulse", cell: [4, 5], period: 5, peak: 0.25, tint: 3 }] },
+      factory_reset:       { stars: {}, mods: [{ gen: "fadeAll", dur: 2.4 }] },
+      deep_night:          { stars: {} },
+      apply_config:        { stars: {} },
+    },
+  },
+};
 
 /* ===================== 7. 量化：alpha → 8bit（含 gamma + 抖动） ===================== */
 const BAYER = [0.5, 0.25, 0.75, 0.0];   // 2x2 有序抖动的相位
@@ -945,51 +932,33 @@ document.getElementById("speed").addEventListener("input", (e) => {
 });
 ui.scrub.addEventListener("input", (e) => { t = parseFloat(e.target.value); });
 
-/* ---- 主题：两套方案并列，主题决定"状态列表 + 参数面板" ---- */
-const THEMES = {
-  stars: {
-    label: "星空语言 v2",
-    states: [
-      ["s_running", "运行（星空 + 时间）"], ["s_idle", "星空基线"],
-      ["s_connect", "尝试连接 · 风"], ["s_portal", "等待配置 · 潮汐"],
-      ["s_success", "连接成功 · 流星"], ["s_sync", "同步 · 同相波"],
-      ["s_ota", "升级 · 星等推进"], ["s_error", "出错 · 冻结余烬"],
-      ["s_blocked", "阻塞 · 停滞"], ["s_reset", "归零 · 星落"],
-    ],
-    show: [["s_idle", 10], ["s_connect", 10], ["s_portal", 12], ["s_success", 4],
-           ["s_sync", 5], ["s_running", 10], ["s_ota", 7], ["s_error", 7],
-           ["s_blocked", 6], ["s_reset", 4], ["s_running", 6]],
-  },
-  motifs: {
-    label: "旧母题 v1",
-    states: [
-      ["running", "运行（显示时间）"], ["connect", "WiFi 连接中"],
-      ["portal", "配网等待（星渐现）"], ["portalDot", "配网等待（角点 chase）"],
-      ["ripple", "手机已连接（涟漪）"], ["ntp", "NTP 同步"], ["ota", "OTA 升级"],
-      ["error", "出错"], ["reset", "恢复出厂"],
-    ],
-    show: [["portal", 14], ["ripple", 2.4], ["connect", 11], ["ntp", 6],
-           ["running", 12], ["error", 8], ["reset", 3], ["running", 8]],
-  },
+/* ---- 主题切换：状态列表是固定的（CANON），切主题只换描述符 ---- */
+const SHOWS = {
+  stars:  [["deep_night", 8], ["wifi_connecting", 9], ["provisioning_wait", 10],
+           ["provisioning_client", 3], ["ntp_syncing", 5], ["running", 8],
+           ["minute_change", 3], ["ota_download", 6], ["error_network", 6],
+           ["factory_reset", 3], ["running", 6]],
+  motifs: [["provisioning_wait", 11], ["provisioning_client", 3], ["wifi_connecting", 9],
+           ["ntp_syncing", 5], ["running", 8], ["error_network", 5],
+           ["factory_reset", 3], ["running", 6]],
 };
-
-let SHOW = THEMES.stars.show;
+let SHOW = SHOWS.stars;
 
 function applyTheme(name, keepState) {
-  const th = THEMES[name] || THEMES.stars;
+  const desc = THEME_DESC[name] || THEME_DESC.stars;
   P.theme = name;
-  ui.state.innerHTML = th.states.map(([v, l]) => `<option value="${v}">${l}</option>`).join("");
-  const keep = keepState && th.states.some(([v]) => v === keepState) ? keepState : th.states[0][0];
-  ui.state.value = keep;
-  SHOW = th.show;
+  SHOW = SHOWS[name] || SHOWS.stars;
   document.querySelectorAll("[data-theme]").forEach(b => b.classList.toggle("on", b.dataset.theme === name));
-  const v1 = document.getElementById("v1params"), v2 = document.getElementById("v2params");
-  if (v1) v1.style.display = name === "motifs" ? "" : "none";
-  if (v2) v2.style.display = name === "stars" ? "" : "none";
+  lastState = null;                       // 强制清过渡状态，避免切主题时闪一下
   showing = false;
   ui.show.classList.remove("on");
   ui.show.textContent = "播放完整状态序列";
+  if (keepState) ui.state.value = keepState;
   t = 0;
+}
+
+function initCanon() {
+  ui.state.innerHTML = CANON.map(([v, l]) => `<option value="${v}">${l}</option>`).join("");
 }
 
 let showIdx = 0, showT = 0, showing = false;
@@ -1155,7 +1124,8 @@ if (document.fonts && document.fonts.load) {
 }
 window.addEventListener("resize", () => layout());
 loadFromHash();
-applyTheme(P.theme || "stars");        // 先铺状态列表（主题决定有哪些状态）
+initCanon();                           // 状态列表固定（固件契约）
+applyTheme(P.theme || "stars");
 loadFromQuery();
 syncControls();
 rebuildStars();
