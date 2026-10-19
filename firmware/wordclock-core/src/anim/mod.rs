@@ -146,6 +146,7 @@ impl Anim {
         self.stars_base(state, t_ms, &mut l);
         self.mods(state, t_ms, &mut l);
         self.text(state, clock, &mut l);
+        l.quantize();
         l.cap(SUM_BUDGET);
         l
     }
@@ -204,12 +205,11 @@ impl Anim {
             }
         }
 
-        // planet：14s 极慢呼吸，让运行态可以完全不闪
+        // planet：一颗**常亮**的暖色点。
+        // 原来做 14s 呼吸，在 8fps + 8bit 的面板上被感知成"第 9 排第 2 格那颗 E
+        // 一直在慢闪"；呼吸已取消，只保留常亮（离散化后也不会再抖）。
         if let (Some(p), true) = (self.planet, state != State::FactoryReset) {
-            let u = (t_ms % 14_000) * 1000 / 14_000;
-            let breath = (500 - cos_1000(u as u16) / 2).max(0) as u32;
-            let a = (100 + (100 * breath) / 1000) as u16;
-            put(&mut l.a, &mut l.tint, p as usize, a, 3);
+            put(&mut l.a, &mut l.tint, p as usize, 250, 3);
         }
     }
 
@@ -278,6 +278,11 @@ pub struct Lights {
     pub tint: [u8; TOTAL_LEDS],
 }
 
+/// 面板在 ~8fps 下"看不清任何渐变"（每一档亮度都要静置至少一帧才被感知），
+/// 所以统一把 alpha 量化到少数几档：所有动效都变成**离散的亮/暗切换**，
+/// 而不是连续 ramp。这是 8fps 场景下唯一稳定的表达方式。
+pub const LEVELS: [u16; 6] = [0, 100, 250, 450, 700, 1000];
+
 /// 整帧"码值之和"上限。经验换算：电流 ≈ 0.235 mA × 码值和，
 /// 所以 9000 ≈ 2.1A。超过这道闸就整帧等比压暗——WS2812 在电压跌落时会
 /// 复位（表现为整板闪白 + 掉帧），必须提前掐住。
@@ -286,6 +291,22 @@ pub const SUM_BUDGET: u32 = 9_000;
 impl Lights {
     pub fn new() -> Self {
         Self { a: [0; TOTAL_LEDS], tint: [0; TOTAL_LEDS] }
+    }
+
+    /// 量化到 `LEVELS`：抹掉所有连续 ramp（见 LEVELS 的注释）
+    pub fn quantize(&mut self) {
+        for a in self.a.iter_mut() {
+            let mut best = 0;
+            let mut best_d = u16::MAX;
+            for &l in LEVELS.iter() {
+                let d = if *a > l { *a - l } else { l - *a };
+                if d < best_d {
+                    best_d = d;
+                    best = l;
+                }
+            }
+            *a = best;
+        }
     }
 
     /// 功率闸：整帧码值和超过预算就等比压暗（保持画面比例，不改变构图）
@@ -386,15 +407,18 @@ fn label_steady(l: &mut Lights, cells: &[(u8, u8)], peak: u16) {
     }
 }
 
-/// 同步闪烁：一个周期内两次脉冲（像提醒而不是呼吸）
+/// 同步闪烁：**方波**，一个周期两次短脉冲（8fps 下正弦包络只会卡在中间档，
+/// 看起来像"半亮着不动"，所以直接 on/off）
 fn label_blink(l: &mut Lights, cells: &[(u8, u8)], t_ms: u32, period_ms: u32, peak: u16, tint: u8) {
-    let u = (t_ms % period_ms) * 2000 / period_ms; // 0..2000 → 两轮
-    let phase = (u % 1000) as u16;
-    let s = sin_1000(phase).max(0) as u32; // 0..1000
-    let env = (s * s / 1000) as u16; // sin^2，锐一点
-    let v = (peak as u32 * env as u32 / 1000) as u16;
+    let half = period_ms / 2;
+    let pulse = period_ms / 6; // 每次 1/6 周期，短促
+    let phase = t_ms % half;
+    let on = phase < pulse;
+    if !on {
+        return;
+    }
     for &(r, c) in cells {
-        put(&mut l.a, &mut l.tint, crate::xy_to_index(r as usize, c as usize), v, tint);
+        put(&mut l.a, &mut l.tint, crate::xy_to_index(r as usize, c as usize), peak, tint);
     }
 }
 
@@ -409,14 +433,14 @@ fn label_progress(l: &mut Lights, cells: &[(u8, u8)], t_ms: u32, demo_ms: u32, p
             put(&mut l.a, &mut l.tint, LETTER_LEDS + d, peak / 2, 0);
         }
     }
-    let breath_u = (t_ms % 1600) * 1000 / 1600;
-    let breath = 550 + 450 * (500 - cos_1000(breath_u as u16) / 2) / 500;
+    // 当前那颗用方波闪烁而不是呼吸（8fps 下呼吸会卡在中间档）
+    let blink_on = (t_ms % 1200) < 600;
     for (k, &(r, c)) in cells.iter().enumerate() {
         let idx = crate::xy_to_index(r as usize, c as usize);
         if k + 1 < shown {
             put(&mut l.a, &mut l.tint, idx, peak * 3 / 4, 0);
-        } else if k + 1 == shown {
-            put(&mut l.a, &mut l.tint, idx, (peak as u32 * breath as u32 / 1000) as u16, 0);
+        } else if k + 1 == shown && blink_on {
+            put(&mut l.a, &mut l.tint, idx, peak, 0);
         }
     }
 }
@@ -676,6 +700,25 @@ mod tests {
             let l = a.render(st, 3000, Some(&f));
             let lit = l.a.iter().filter(|&&x| x > 20).count();
             assert!(lit > 0, "{st:?} 在 t=3s 什么都没亮");
+        }
+    }
+
+    #[test]
+    fn 运行态必须完全静止() {
+        // 8fps 面板上任何"慢变化"都会被看成卡顿/慢闪（曾经的 planet 呼吸就是
+        // 那颗一直慢闪的 E）。运行态必须做到逐帧完全相同 → 上层可以跳过重绘。
+        let a = Anim::new(20261018, Some((8, 1)));
+        let f = time_to_frame(10, 9);
+        let base = a.render(State::Running, 1000, Some(&f));
+        for t in [2000u32, 5000, 9000, 15_000, 40_000] {
+            let l = a.render(State::Running, t, Some(&f));
+            if l.a != base.a {
+                for i in 0..TOTAL_LEDS {
+                    if l.a[i] != base.a[i] {
+                        panic!("t={t} 第 {i} 号灯不一致: {} vs {}（tint {} vs {}）", base.a[i], l.a[i], base.tint[i], l.tint[i]);
+                    }
+                }
+            }
         }
     }
 
