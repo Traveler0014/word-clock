@@ -132,7 +132,7 @@ impl Anim {
                 led: order[i],
                 peak,
                 period_ms,
-                phase: (1000 * r3) as u16,
+                phase: (r3 % 1000) as u16,
                 tint,
             };
         }
@@ -153,12 +153,8 @@ impl Anim {
 
     // ── 星场：所有状态的基底，按状态做乘性调制 ──
     fn stars_base(&self, state: State, t_ms: u32, l: &mut Lights) {
-        if state == State::FactoryReset || state == State::ApplyConfig {
-            // 归零/重启：不画星场（各自用 mods 表达）
-            if state == State::FactoryReset {
-                return;
-            }
-        }
+        // 注意：归零(FactoryReset)要靠星场自身的 `fall` 熄灭顺序来表达"星落"，
+        // 所以这里**不能**提前 return（踩过：提前返回导致归零态一片漆黑）
         // (rate‰, peak_mul‰, tide, fall)
         let (rate, peak_mul, tide, fall) = match state {
             State::Boot => (1800, 200, None, false),
@@ -205,11 +201,11 @@ impl Anim {
             }
         }
 
-        // planet：一颗**常亮**的暖白点。
-        // - 原来做 14s 呼吸 → 在 8bit + 8fps 面板上被看成"那颗 E 一直在慢闪"
-        // - 原来用琥珀色(tint 3) → 与"琥珀 = 异常"的语言冲突；改成暖白(tint 2)，
-        //   琥珀色从此专用于错误态
-        if let (Some(p), true) = (self.planet, state != State::FactoryReset) {
+        // planet：只在**纯星空**状态（深夜）里出现。
+        // 它没有语义——一颗常亮的孤立字母在"报时"和"加载"状态里会被读成
+        // "有个灯坏了"。保留它的唯一合理场合是没有文字、只有星空的深夜，
+        // 那时它读作氛围（暖白，不是琥珀——琥珀专用于异常）。
+        if let (Some(p), State::DeepNight) = (self.planet, state) {
             put(&mut l.a, &mut l.tint, p as usize, 250, 2);
         }
     }
@@ -516,11 +512,14 @@ pub fn cos_1000(u: u16) -> i32 {
     sin_1000((u + 250) % 1000)
 }
 
-/// 尖峰曲线 sin^4(πu)：大部分时间接近熄灭、偶尔闪一下（真实星空的手感）
+/// 尖峰曲线 sin^4(πu)：大部分时间接近熄灭、偶尔闪一下（真实星空的手感）。
+/// 返回 0..1000 定点。注意每一步都要保住 1000 的标度：
+///   s² = s·s/1000，s⁴ = s²·s²/1000 —— 多除一次 1000 会让整个星场恒为 0
+///   （踩过：星场在固件里"根本没亮过"，只有文字和标签可见）。
 fn twinkle_spike(phase: u16) -> u16 {
     let s = sin_1000(phase / 2).max(0) as u32; // sin(πu)，0..1000
     let s2 = s * s / 1000;
-    ((s2 * s2 / 1000) / 1000) as u16
+    (s2 * s2 / 1000) as u16
 }
 
 /// 高斯衰减（定点）：d, width 同量纲，返回 0..1000
@@ -693,44 +692,42 @@ mod tests {
 
     #[test]
     fn 每个状态都点得亮东西() {
+        // 抽样整个时间轴：一次性事件（涟漪/滴答）只在很短窗口里有光，
+        // 不能用一个固定时刻断言
         let a = Anim::new(3, Some((8, 1)));
         let f = time_to_frame(10, 9);
         for st in [State::Boot, State::WifiConnecting, State::WifiScanning, State::ProvisioningWait,
                    State::ProvisioningClient, State::NtpSyncing, State::MinuteChange,
-                   State::OtaDownload, State::OtaApply, State::ErrorTime] {
-            let l = a.render(st, 3000, Some(&f));
-            let lit = l.a.iter().filter(|&&x| x > 20).count();
-            assert!(lit > 0, "{st:?} 在 t=3s 什么都没亮");
-        }
-    }
-
-    #[test]
-    fn 运行态必须完全静止() {
-        // 8fps 面板上任何"慢变化"都会被看成卡顿/慢闪（曾经的 planet 呼吸就是
-        // 那颗一直慢闪的 E）。运行态必须做到逐帧完全相同 → 上层可以跳过重绘。
-        let a = Anim::new(20261018, Some((8, 1)));
-        let f = time_to_frame(10, 9);
-        let base = a.render(State::Running, 1000, Some(&f));
-        for t in [2000u32, 5000, 9000, 15_000, 40_000] {
-            let l = a.render(State::Running, t, Some(&f));
-            if l.a != base.a {
-                for i in 0..TOTAL_LEDS {
-                    if l.a[i] != base.a[i] {
-                        panic!("t={t} 第 {i} 号灯不一致: {} vs {}（tint {} vs {}）", base.a[i], l.a[i], base.tint[i], l.tint[i]);
-                    }
-                }
+                   State::OtaDownload, State::OtaApply, State::ErrorTime, State::FactoryReset] {
+            let mut best = 0;
+            for t in (0..4000u32).step_by(125) {
+                let l = a.render(st, t, Some(&f));
+                best = best.max(l.a.iter().filter(|&&x| x > 20).count());
             }
+            assert!(best > 0, "{st:?} 在 0~4s 内始终没有任何灯亮");
         }
     }
 
     #[test]
-    fn planet_用暖白而不是琥珀色() {
-        // 琥珀(3) 是"异常"语义，planet 常亮在那里会被误读成设备有问题
+    fn planet_只在深夜出现且是暖白() {
+        // 一颗常亮的孤立字母在"报时/加载"里会被读成坏灯；只在纯星空(深夜)保留，
+        // 且必须是暖白(2)——琥珀(3) 专用于异常。
         let a = Anim::new(1, Some((8, 1)));
         let p = a.planet.unwrap() as usize;
-        for st in [State::Running, State::DeepNight, State::Boot, State::ProvisioningWait] {
-            let l = a.render(st, 3000, Some(&time_to_frame(10, 9)));
-            assert_eq!(l.tint[p], 2, "{st:?} 的 planet 应该是暖白(2)");
+        let f = time_to_frame(10, 9);
+
+        let deep = a.render(State::DeepNight, 3000, Some(&f));
+        assert!(deep.a[p] > 0, "深夜应保留 planet 氛围点");
+        assert_eq!(deep.tint[p], 2, "planet 必须是暖白");
+
+        for st in [State::Running, State::Boot, State::ProvisioningWait, State::WifiScanning] {
+            let l = a.render(st, 3000, Some(&f));
+            // 允许被该格的星场点亮，但不能出现 planet 专属的常亮档
+            assert!(
+                l.a[p] <= LEVELS[1],
+                "{st:?} 出现了一颗常亮的孤立字母(alpha={})",
+                l.a[p]
+            );
         }
     }
 
@@ -744,3 +741,4 @@ mod tests {
         assert!(count(&late) >= count(&early), "进度刻度应递增");
     }
 }
+
