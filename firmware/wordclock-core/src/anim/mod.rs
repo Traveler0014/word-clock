@@ -205,11 +205,12 @@ impl Anim {
             }
         }
 
-        // planet：一颗**常亮**的暖色点。
-        // 原来做 14s 呼吸，在 8fps + 8bit 的面板上被感知成"第 9 排第 2 格那颗 E
-        // 一直在慢闪"；呼吸已取消，只保留常亮（离散化后也不会再抖）。
+        // planet：一颗**常亮**的暖白点。
+        // - 原来做 14s 呼吸 → 在 8bit + 8fps 面板上被看成"那颗 E 一直在慢闪"
+        // - 原来用琥珀色(tint 3) → 与"琥珀 = 异常"的语言冲突；改成暖白(tint 2)，
+        //   琥珀色从此专用于错误态
         if let (Some(p), true) = (self.planet, state != State::FactoryReset) {
-            put(&mut l.a, &mut l.tint, p as usize, 250, 3);
+            put(&mut l.a, &mut l.tint, p as usize, 250, 2);
         }
     }
 
@@ -719,6 +720,17 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    #[test]
+    fn planet_用暖白而不是琥珀色() {
+        // 琥珀(3) 是"异常"语义，planet 常亮在那里会被误读成设备有问题
+        let a = Anim::new(1, Some((8, 1)));
+        let p = a.planet.unwrap() as usize;
+        for st in [State::Running, State::DeepNight, State::Boot, State::ProvisioningWait] {
+            let l = a.render(st, 3000, Some(&time_to_frame(10, 9)));
+            assert_eq!(l.tint[p], 2, "{st:?} 的 planet 应该是暖白(2)");
         }
     }
 
