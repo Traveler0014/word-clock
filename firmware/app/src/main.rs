@@ -93,6 +93,14 @@ fn main() -> Result<()> {
     let nvs = esp_idf_svc::nvs::EspDefaultNvsPartition::take()?;
     let mut wifi = wifi::create(peripherals.modem, sysloop, nvs.clone())?;
 
+    // 主机名（DHCP option 12）必须在任何 connect() 之前设好：路由器客户端列表里
+    // 看到的名字就是它（不设 = IDF 默认的 "espressif"）。管理页改名后是重启生效。
+    let boot_cfg = settings::load(&nvs);
+    let applied_name = boot_cfg.name.clone();
+    if let Err(e) = wifi::set_hostname(&wifi, &applied_name) {
+        warn!("wifi: 设置主机名失败（继续用默认 espressif）: {e:#}");
+    }
+
     // ── 恢复出厂手势 ────────────────────────────────────────────────
     // 无按键设备的通用做法：连续 3 次"没跑到健康状态"就认为用户想强制重新配网。
     // 健康状态在 WiFi + NTP 成功后由 clear_boot_streak() 确认（见下方）。
@@ -223,6 +231,14 @@ fn main() -> Result<()> {
                 error!("settings: 落盘失败: {e:#}");
             }
             time_svc::set_tz(&next.tz);
+            // 主机名变了 → 旧租约不会重新上报新名字，重启一次让它重新 DHCP
+            // （和“更换网络”同一个手势；页面会收到一次断连，属于预期）
+            if next.name != applied_name {
+                info!("run: 主机名 \"{}\" → \"{}\"，重启以重新注册", applied_name, next.name);
+                shared.lock().unwrap().settings_dirty = false;
+                std::thread::sleep(Duration::from_millis(300));
+                unsafe { esp_idf_svc::sys::esp_restart() };
+            }
             // 亮度/色温变了 → 重算动效配色（下一次 tick 生效）
             let d = next.brightness_div().max(1);
             let nc = next.color_rgb();

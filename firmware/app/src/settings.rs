@@ -14,9 +14,15 @@ const KEY_BRIGHT: &str = "bright";
 const KEY_COLOR: &str = "color";
 const KEY_TZ: &str = "tz";
 const KEY_ADMIN: &str = "admin";
+const KEY_NAME: &str = "name";
 
 /// 默认时区（中国无夏令时）
 pub const TZ_DEFAULT: &str = "CST-8";
+/// 设备主机名默认值。这个字符串会作为 DHCP option 12 报给路由器
+/// （也就是路由器客户端列表里显示的名字），IDF 不设时是 "espressif"。
+pub const NAME_DEFAULT: &str = "klara-clock";
+/// 主机名上限：RFC 1123 允许 63，这里取 32（与 NVS 缓冲、页面 maxlength 对齐）
+const NAME_MAX: usize = 32;
 /// 时区字符串最长 16 字节，够放 "CST-8" / "UTC" / "EST5EDT"
 const TZ_MAX: usize = 16;
 /// 管理口令最长 32 字节（空串 = 不鉴权）
@@ -45,6 +51,8 @@ pub struct Settings {
     pub tz: String,
     /// 管理页口令；空 = 局域网内无需鉴权
     pub admin: String,
+    /// 设备主机名（DHCP option 12 / 路由器客户端列表显示名）；空 = 用默认值
+    pub name: String,
 }
 
 impl Default for Settings {
@@ -54,6 +62,7 @@ impl Default for Settings {
             color: 0,
             tz: TZ_DEFAULT.to_string(),
             admin: String::new(),
+            name: NAME_DEFAULT.to_string(),
         }
     }
 }
@@ -79,6 +88,36 @@ impl Settings {
         if self.admin.len() > ADMIN_MAX {
             self.admin.truncate(ADMIN_MAX);
         }
+        self.name = sanitize_hostname(&self.name);
+    }
+}
+
+/// 主机名清洗：只保留 `[a-z0-9-]`，非法字符折叠成单个 `-`，去掉首尾 `-`，
+/// 截断到 [`NAME_MAX`]，结果为空则回落 [`NAME_DEFAULT`]。
+///
+/// 为什么要自己校验：`esp_netif_set_hostname` 不做任何合法性检查，写进非法
+/// 字符要么被路由器丢弃、要么在客户端列表里显示成乱码；中文/emoji 只适合
+/// 放进显示名（mDNS 实例名），不属于主机名规范。
+pub fn sanitize_hostname(raw: &str) -> String {
+    let mut out = String::new();
+    for ch in raw.chars() {
+        if out.len() >= NAME_MAX {
+            break;
+        }
+        let c = ch.to_ascii_lowercase();
+        if c.is_ascii_alphanumeric() {
+            out.push(c);
+        } else if !out.is_empty() && !out.ends_with('-') {
+            out.push('-');
+        }
+    }
+    while out.ends_with('-') {
+        out.pop();
+    }
+    if out.is_empty() {
+        NAME_DEFAULT.to_string()
+    } else {
+        out
     }
 }
 
@@ -103,6 +142,10 @@ pub fn load(nvs: &EspDefaultNvsPartition) -> Settings {
     if let Ok(Some(v)) = h.get_str(KEY_ADMIN, &mut abuf) {
         s.admin = v.to_string();
     }
+    let mut nbuf = [0u8; NAME_MAX];
+    if let Ok(Some(v)) = h.get_str(KEY_NAME, &mut nbuf) {
+        s.name = v.to_string();
+    }
     s.sanitize();
     s
 }
@@ -115,11 +158,13 @@ pub fn save(nvs: &EspDefaultNvsPartition, s: &Settings) -> Result<()> {
     h.set_u8(KEY_COLOR, s.color)?;
     h.set_str(KEY_TZ, &s.tz)?;
     h.set_str(KEY_ADMIN, &s.admin)?;
+    h.set_str(KEY_NAME, &s.name)?;
     info!(
-        "settings: 已保存 brightness={} color={} tz={} admin={}",
+        "settings: 已保存 brightness={} color={} tz={} name={} admin={}",
         s.brightness,
         s.color,
         s.tz,
+        s.name,
         if s.admin.is_empty() { "（无）" } else { "（已设置）" }
     );
     Ok(())
@@ -128,7 +173,7 @@ pub fn save(nvs: &EspDefaultNvsPartition, s: &Settings) -> Result<()> {
 /// 恢复出厂：设置项 + WiFi 凭据全部清空
 pub fn factory_reset(nvs: &EspDefaultNvsPartition) -> Result<()> {
     let h = open(nvs)?;
-    for k in [KEY_BRIGHT, KEY_COLOR, KEY_TZ, KEY_ADMIN] {
+    for k in [KEY_BRIGHT, KEY_COLOR, KEY_TZ, KEY_ADMIN, KEY_NAME] {
         let _ = h.remove(k);
     }
     crate::creds::clear(nvs)?;

@@ -32,10 +32,11 @@
 ## Phase A-Full
 
 - [x] 运行期管理页（局域网 `http://<ip>/`）：状态、亮度/色温/时区/管理口令、更换网络、恢复出厂（2026-10-18）
+- [x] 设备主机名可配（DHCP option 12）：默认 `klara-clock`，管理页可改，改后重启重新注册（2026-11-07）
 - [x] 恢复出厂手势：连续 3 次未正常启动清空 NVS
 - [ ] 强制门户（DNS 劫持 + 302），配网时手机自动弹登录页（当前需手动输 IP）
 - [ ] BLE 配网（NimBLE GATT + Web Bluetooth 页面，仅 Android/桌面 Chrome）
-- [ ] mDNS `clock.local`（评估结论：IDF5 需外置组件 + 构建期联网，暂不引入）
+- [ ] mDNS `klara-clock.local`（评估结论：IDF5 需外置组件 `espressif/mdns` + 构建期联网，暂不引入；当前只用 DHCP 主机名）
 - [ ] Web 配置页（EspHttpServer）：颜色/亮度/WiFi/夜间时段（配网页已是同一套 HTTP 服务，可复用）
 - [ ] 光敏自动亮度（ADC）
 - [ ] 换词淡入淡出过渡

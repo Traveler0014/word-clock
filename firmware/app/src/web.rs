@@ -167,10 +167,11 @@ impl Shared {
 
     fn json_settings(&self) -> String {
         format!(
-            "{{\"brightness\":{},\"color\":{},\"tz\":\"{}\",\"admin\":{}}}",
+            "{{\"brightness\":{},\"color\":{},\"tz\":\"{}\",\"name\":\"{}\",\"admin\":{}}}",
             self.settings.brightness,
             self.settings.color,
             json_escape(&self.settings.tz),
+            json_escape(&self.settings.name),
             !self.settings.admin.is_empty()
         )
     }
@@ -885,6 +886,13 @@ fn start_server(
             if let Some(v) = get("tz") {
                 if !v.is_empty() {
                     g.settings.tz = v;
+                }
+            }
+            if let Some(v) = get("name") {
+                // 只接非空值：清空输入框 = “不改”。具体合法性交给 sanitize()
+                // （小写化、非法字符折叠、过长截断、空则回落默认值）
+                if !v.trim().is_empty() {
+                    g.settings.name = v.trim().to_string();
                 }
             }
             if let Some(v) = get("admin") {

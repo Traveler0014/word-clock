@@ -13,7 +13,7 @@ QLOCKTWO 风格英文字钟：ESP32-C5 + WS2812B（114 灯），Rust 固件（es
 - `firmware/vendor/` — vendored ws2812 驱动（hal 0.46 补丁版，勿升级）
 - `docs/` — roadmap / development / wiring / bom
 - `firmware/app/src/` — `main.rs`（状态机）`wifi.rs`（连接原语）`creds.rs`（NVS 凭据）
-  `settings.rs`（亮度/色温/时区/管理口令）`web.rs` + `web_setup.html` + `web_admin.html`（内建 Web）
+  `settings.rs`（亮度/色温/时区/管理口令/主机名）`web.rs` + `web_setup.html` + `web_admin.html`（内建 Web）
   `leddrv.rs`（legacy RMT + 预编码）`time_svc.rs`（SNTP + TZ）
 - `tools/` — 宿主机工具：`uart_sniff.py`（日志）、`frame_preview.py`（点阵预览/映射反查）、`debug_web.py`+`debug_web.html`（浏览器点选实测亮灯）
 - `scripts/windows/` — `usb-up/down.ps1`（usbipd bind+attach）、`open-debug.ps1`（用正确地址打开调试页）、`wsl-port-forward.ps1`（portproxy 备用，本机无效）
@@ -34,7 +34,10 @@ cargo build -p word-clock --release
 #   手机连热点 WordClock-XXXXXX（开放）→ 浏览器打开日志里打印的 AP IP（本机实测 192.168.71.1）
 #   → 选网络 / 输密码（可选设管理口令）→ 设备重启后生效
 # 恢复出厂：连续 3 次上电都没跑到健康状态（WiFi+NTP 成功）即清空凭据与设置
-# 运行期管理页：http://<设备 IP>/（改亮度/色温/时区/口令、更换网络、恢复出厂）
+# 运行期管理页：http://<设备 IP>/（改亮度/色温/时区/口令/设备名称、更换网络、恢复出厂）
+# 设备名称 = DHCP option 12（路由器客户端列表里显示的名字），默认 klara-clock；
+# 改了会重启一次重新注册。注意：很多家用路由器不把 DHCP 名字登记进 DNS，
+# 所以 `ping klara-clock` 可能解析不了，以路由器管理页的客户端列表为准（mDNS 未启用）。
 
 # 调试固件：不连 WiFi，只显示静态标尺（每行左红/右绿/中暗蓝 + 四角白）
 # 用于验证灯链映射与信号完整性，不依赖网络、不依赖时间

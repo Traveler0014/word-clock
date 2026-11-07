@@ -17,6 +17,7 @@ use anyhow::Result;
 use esp_idf_svc::{
     eventloop::EspSystemEventLoop,
     hal::modem::Modem,
+    handle::RawHandle,
     nvs::EspDefaultNvsPartition,
     wifi::{
         AccessPointConfiguration, AccessPointInfo, AuthMethod, BlockingWifi, ClientConfiguration,
@@ -46,8 +47,7 @@ fn set_ap_ip(wifi: &Wifi) -> Result<String> {
         // 直接用 (a<<24)|(b<<16)|... 在 LE 芯片上会得到反序地址 —— 之前就因此把
         // 掩码写成非法值，dhcps 起不来并在 esp-idf-svc 里 unwrap panic。
         let oct = |a: u8, b: u8, c: u8, d: u8| -> u32 { u32::from_ne_bytes([a, b, c, d]) };
-        // EspNetif 实现了 RawHandle，用 handle() 取裸指针
-        use esp_idf_svc::handle::RawHandle;
+        // EspNetif 实现了 RawHandle（已在文件头全局 use），用 handle() 取裸指针
         let handle = wifi.wifi().ap_netif().handle();
         let addr = sys::esp_ip4_addr_t { addr: oct(AP_IP[0], AP_IP[1], AP_IP[2], AP_IP[3]) };
         let mask = sys::esp_ip4_addr_t { addr: oct(255, 255, 255, 0) };
@@ -114,6 +114,26 @@ pub fn create(
     let esp_wifi = EspWifi::new(modem, sysloop.clone(), Some(nvs))?;
     info!("wifi: EspWifi created");
     Ok(BlockingWifi::wrap(esp_wifi, sysloop)?)
+}
+
+/// 设置 STA 侧主机名（DHCP option 12）。
+///
+/// 必须**在 DHCP 启动前**（也就是任何 `connect()` 之前）调用：已经拿到的租约
+/// 不会重新上报新名字，改了名字要么重新 DHCP，要么直接重启（管理页就是走重启）。
+/// `LWIP_NETIF_HOSTNAME` 在 IDF 的 lwipopts.h 里恒为 1，所以 DHCP 客户端会
+/// 自动把它当 option 12 发出去，不需要额外配置。
+///
+/// 名字合法性由 `settings::sanitize_hostname()` 保证；这里只做 C 字符串转换。
+pub fn set_hostname(wifi: &Wifi, name: &str) -> Result<()> {
+    let cname = std::ffi::CString::new(name)
+        .map_err(|_| anyhow::anyhow!("主机名含 \\0"))?;
+    let handle = wifi.wifi().sta_netif().handle();
+    let rc = unsafe { esp_idf_svc::sys::esp_netif_set_hostname(handle, cname.as_ptr()) };
+    if rc != 0 {
+        anyhow::bail!("esp_netif_set_hostname 失败 rc={rc}");
+    }
+    info!("wifi: 主机名 = {name}");
+    Ok(())
 }
 
 fn client_config(creds: &Creds) -> Result<ClientConfiguration> {
