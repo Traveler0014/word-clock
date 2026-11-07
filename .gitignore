@@ -18,3 +18,9 @@
 
 # 调试页落盘的观测数据
 .debug/
+
+# Windows 复制/下载产生的 ADS 附属流（如 "photo.jpg:Zone.Identifier"，不是真实内容）
+*:Zone.Identifier
+
+# KiCad 编辑期锁文件（~<project>.kicad_*.lck，崩溃后可能残留）
+*.lck
