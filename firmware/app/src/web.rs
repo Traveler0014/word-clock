@@ -155,8 +155,9 @@ impl Shared {
 
     fn json_info(&self) -> String {
         format!(
-            "{{\"mode\":\"run\",\"ip\":\"{}\",\"ssid\":\"{}\",\"rssi\":{},\"uptime\":{},\"fw\":\"{}\",\"admin\":{}}}",
+            "{{\"mode\":\"run\",\"ip\":\"{}\",\"host\":\"{}.local\",\"ssid\":\"{}\",\"rssi\":{},\"uptime\":{},\"fw\":\"{}\",\"admin\":{}}}",
             json_escape(&self.ip),
+            json_escape(&self.settings.name),
             json_escape(&self.ssid),
             self.rssi,
             self.boot.elapsed().as_secs(),

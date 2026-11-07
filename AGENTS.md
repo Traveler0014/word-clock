@@ -28,13 +28,16 @@ cd firmware && source env.sh                 # 每次新终端必须先执行
 cargo test -p wordclock-core --target x86_64-unknown-linux-gnu
 
 # 编译（**不需要任何 WiFi 环境变量**：凭据只存在 NVS，由配网页面写入）
+# 首次构建会从组件仓库拉 espressif/mdns（mDNS 用；IDF 5.5 起 mdns 不再内置）
+# → 需要访问 components.espressif.com，版本锁在 firmware/components_esp32c5.lock
 cargo build -p word-clock --release
 
 # 配网（NVS 无凭据或连不上时自动进入）
 #   手机连热点 WordClock-XXXXXX（开放）→ 浏览器打开日志里打印的 AP IP（本机实测 192.168.71.1）
 #   → 选网络 / 输密码（可选设管理口令）→ 设备重启后生效
 # 恢复出厂：连续 3 次上电都没跑到健康状态（WiFi+NTP 成功）即清空凭据与设置
-# 运行期管理页：http://<设备 IP>/（改亮度/色温/时区/口令/设备名称、更换网络、恢复出厂）
+# 运行期管理页：http://<设备 IP>/ 或 http://klara-clock.local/（mDNS）
+#   （改亮度/色温/时区/口令/设备名称、更换网络、恢复出厂）
 # 设备名称 = DHCP option 12（路由器客户端列表里显示的名字），默认 klara-clock；
 # 改了会重启一次重新注册。注意：很多家用路由器不把 DHCP 名字登记进 DNS，
 # 所以 `ping klara-clock` 可能解析不了，以路由器管理页的客户端列表为准（mDNS 未启用）。

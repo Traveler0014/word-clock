@@ -76,6 +76,7 @@
   <dl>
     <div class="row"><dt id="k_ssid"></dt><dd id="v_ssid">—</dd></div>
     <div class="row"><dt id="k_ip"></dt><dd id="v_ip">—</dd></div>
+    <div class="row"><dt id="k_host"></dt><dd id="v_host">—</dd></div>
     <div class="row"><dt id="k_rssi"></dt><dd id="v_rssi">—</dd></div>
     <div class="row"><dt id="k_up"></dt><dd id="v_up">—</dd></div>
     <div class="row"><dt id="k_fw"></dt><dd id="v_fw">—</dd></div>
@@ -135,7 +136,7 @@
     zh: {
       lead: "运行中。以下设置即时生效，写入后断电保留。",
       secLogin: "管理口令", lLogin: "口 令", btnLogin: "进入",
-      secStatus: "状态", kSsid: "网络", kIp: "地址", kRssi: "信号",
+      secStatus: "状态", kSsid: "网络", kIp: "地址", kHost: "域名", kRssi: "信号",
       kUp: "运行时长", kFw: "固件",
       secCfg: "显示", lBright: "亮 度", lColor: "色 温", lTz: "时 区",
       hTz: "按所在地区选择即可；特殊需求可选自定义并填写 POSIX 时区串。",
@@ -156,7 +157,7 @@
     en: {
       lead: "Running. Changes take effect immediately and persist across power cycles.",
       secLogin: "Admin password", lLogin: "PASSWORD", btnLogin: "ENTER",
-      secStatus: "Status", kSsid: "Network", kIp: "Address", kRssi: "Signal",
+      secStatus: "Status", kSsid: "Network", kIp: "Address", kHost: "Hostname", kRssi: "Signal",
       kUp: "Uptime", kFw: "Firmware",
       secCfg: "Display", lBright: "BRIGHTNESS", lColor: "COLOR", lTz: "TIMEZONE",
       hTz: "Pick your region. Use custom only if you need a specific POSIX string.",
@@ -248,6 +249,7 @@
     $("sec_status").textContent = t("secStatus");
     $("k_ssid").textContent = t("kSsid");
     $("k_ip").textContent = t("kIp");
+    $("k_host").textContent = t("kHost");
     $("k_rssi").textContent = t("kRssi");
     $("k_up").textContent = t("kUp");
     $("k_fw").textContent = t("kFw");
@@ -286,6 +288,7 @@
         state.adminSet = !!j.admin;
         setText("v_ssid", j.ssid || "—");
         setText("v_ip", j.ip || "—");
+        setText("v_host", j.host || "—");
         setText("v_rssi", j.rssi ? j.rssi + " dBm" : "—");
         var m = Math.floor(j.uptime / 60);
         setText("v_up", m >= 60 ? Math.floor(m / 60) + "h " + (m % 60) + "m" : m + "m");

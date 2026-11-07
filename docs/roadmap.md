@@ -36,7 +36,9 @@
 - [x] 恢复出厂手势：连续 3 次未正常启动清空 NVS
 - [ ] 强制门户（DNS 劫持 + 302），配网时手机自动弹登录页（当前需手动输 IP）
 - [ ] BLE 配网（NimBLE GATT + Web Bluetooth 页面，仅 Android/桌面 Chrome）
-- [ ] mDNS `klara-clock.local`（评估结论：IDF5 需外置组件 `espressif/mdns` + 构建期联网，暂不引入；当前只用 DHCP 主机名）
+- [x] mDNS `klara-clock.local`（2026-11-08）：IDF 5 已不内置 mdns，走组件仓库 `espressif/mdns`
+      （锁 1.15.1，见 `firmware/components_esp32c5.lock`），通告 `_http._tcp`；
+      Windows/macOS/iOS/Linux(Avahi) 可直接解析——正好补上路由器不回 DNS 的缺口
 - [ ] Web 配置页（EspHttpServer）：颜色/亮度/WiFi/夜间时段（配网页已是同一套 HTTP 服务，可复用）
 - [ ] 光敏自动亮度（ADC）
 - [ ] 换词淡入淡出过渡

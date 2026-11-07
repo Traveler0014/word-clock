@@ -20,6 +20,17 @@ esp-idf-hal = { version = "0.46", features = ["rmt-legacy"] }
 [build-dependencies]
 embuild = "0.33"
 
+# mDNS：IDF v5.5 起 mdns 已内置组件→组件仓库的 `espressif/mdns`（需要自己拉取）。
+# esp-idf-sys 会把下面声明的远程组件写进生成的 `idf_component.yml`，由 IDF
+# 组件管理器安装。⚠️ **首次构建需访问 components.espressif.com**（首次拉取后
+# 缓存到 .embuild/target 下，后续离线可编）。
+# 启用后 esp-idf-svc 的 `esp_idf_comp_espressif__mdns_enabled` cfg 才会成立，
+# `esp_idf_svc::mdns` 模块才编得进去。
+[package.metadata.esp-idf-sys]
+extra_components = [
+    { remote_component = { name = "espressif/mdns", version = "^1" } },
+]
+
 [features]
 # diag：烧一版“不连 WiFi、只显示静态标尺”的调试固件，用于验证灯链映射/
 # 信号是否修复。开启后 main 在自检后直接进标尺循环，不进网络流程。

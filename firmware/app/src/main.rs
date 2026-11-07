@@ -209,6 +209,12 @@ fn main() -> Result<()> {
         cfg0.brightness, cfg0.color, cfg0.tz
     );
 
+    // ── mDNS：局域网可用 http://<name>.local/ 直接访问 ──────────────
+    // 与 DHCP 主机名（option 12）共用同一个设置项：路由器不一定把 DHCP 名字
+    // 登记进 DNS（本机实测的 ctOS 网关就不登记），mDNS 是这个场景的兼容方案。
+    // 改名走重启，所以这里启动一次就够；句柄留到进程结束。
+    let _mdns = mdns_start(&cfg0.name);
+
     info!("entering display loop");
     // 动效配色：设置里的色温，按亮度档位预先缩放一次
     let div = cfg0.brightness_div().max(1);
@@ -311,4 +317,35 @@ fn main() -> Result<()> {
         anim.tick(&mut leds, Some(&clock_frame), anim_color)?;
         std::thread::sleep(Duration::from_millis(10));
     }
+}
+
+/// 启动 mDNS：局域网用 `http://<name>.local/` 访问，不依赖路由器是否把 DHCP
+/// 主机名登记进 DNS（很多家用网关不登记，本机实测的 ctOS 就是不登记的那个）。
+///
+/// * hostname 与 DHCP option 12 共用同一个设置项，保证两种访问方式名字一致
+/// * 实例名（服务列表里显示的）用友好写法 `KLARA Clock`——实例名允许空格/大写，
+///   主机名不允许（RFC 1123），两者故意不同
+/// * 通告 `_http._tcp` 80 端口，方便 iOS/macOS 的 Bonjour 浏览器直接点开
+///
+/// 返回值必须活到进程结束：虽然 `EspMdns` 没实现 Drop（丢掉也不会注销服务），
+/// 但把它攥在 `main` 里能让"服务生命周期"在读代码时一目了然。
+fn mdns_start(name: &str) -> Option<esp_idf_svc::mdns::EspMdns> {
+    use esp_idf_svc::mdns::EspMdns;
+
+    let mut mdns = match EspMdns::take() {
+        Ok(m) => m,
+        Err(e) => {
+            warn!("mdns: 初始化失败（http://{name}.local/ 不可用）: {e:?}");
+            return None;
+        }
+    };
+    if let Err(e) = mdns.set_hostname(name) {
+        warn!("mdns: 设置 hostname 失败: {e:?}");
+    }
+    let _ = mdns.set_instance_name("KLARA Clock");
+    if let Err(e) = mdns.add_service(Some("KLARA Clock"), "_http", "_tcp", 80, &[("path", "/")]) {
+        warn!("mdns: 通告 _http._tcp 失败: {e:?}");
+    }
+    info!("mdns: http://{name}.local/ （服务实例名 KLARA Clock）");
+    Some(mdns)
 }

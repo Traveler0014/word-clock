@@ -30,6 +30,23 @@ firmware/
   - hal 0.45：对 esp32c5 支持不全且与 v5.4+ API 漂移
 - esp Rust 工具链 1.95.0（nightly fork，`build-std` 编译 std）
 
+## mDNS / 组件仓库
+
+局域网域名访问（`http://klara-clock.local/`）靠 **组件仓库的 `espressif/mdns`**：IDF v5.5
+已把 mdns 从内置组件移出，本仓库通过 `app/Cargo.toml` 的
+`[package.metadata.esp-idf-sys] extra_components` 声明，esp-idf-sys 会生成
+`idf_component.yml` 交给 IDF 组件管理器。
+
+- 版本锁定在 `firmware/components_esp32c5.lock`（当前 1.15.1），与 `Cargo.lock` 一样应提交
+- **首次构建需访问 `components.espressif.com`**（拉下来后缓存在 `.embuild/` 与 `target/`，后续离线可编）
+- 坑：本工作区是**虚拟 workspace**，`cargo metadata` 拿不到 root package，esp-idf-sys
+  会**静默忽略** `[package.metadata.esp-idf-sys]`（只打一条 warning 就继续，表现为
+  “配了没效果”、`out/main/idf_component.yml` 根本没生成）。必须在
+  `firmware/.cargo/config.toml` 里设 `ESP_IDF_SYS_ROOT_CRATE = "word-clock"`
+- hostname 与 DHCP option 12 共用设置项（`settings.name`）；服务实例名固定
+  `KLARA Clock`，通告 `_http._tcp` 80
+- Android 原生不解析 `.local`（需额外 App），iOS/macOS/Windows/Linux(Avahi) 可直接用
+
 ## 板子差异（务必确认！）
 
 | 模组 | flash | PSRAM | 本仓库配置 |

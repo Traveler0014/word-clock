@@ -20,3 +20,8 @@ CONFIG_PTHREAD_TASK_STACK_SIZE_DEFAULT=8192
 # 执行的第一段 flash 常驻代码）取指得到非法指令 → Guru Meditation 重启循环；
 # 而体积更小的 diag 版 / debug 版恰好不触发。降回 40MHz 后恢复正常。
 CONFIG_ESPTOOLPY_FLASHFREQ_40M=y
+
+# mDNS（局域网域名访问：http://klara-clock.local/）
+# 组件本体来自组件仓库 espressif/mdns（见 app/Cargo.toml 的 metadata），
+# IDF 侧只需要打开开关；关闭时 esp_idf_svc::mdns 整个模块不会被编译。
+CONFIG_MDNS_ENABLED=y
