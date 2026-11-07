@@ -3,3 +3,8 @@ _wordclock-led_unfilled.kicad_pcb
 *-bak
 fp-info-cache
 .history/
+
+# fab 包里的 STEP 是 ../pcba.step 的拷贝（字节一致，8.4MB），不入库以免历史里
+# 出现两份同样的二进制。需要"自洽的 fab 包"（直接丢给板厂/贴片厂）时手动拷一份：
+#   cp pcba.step fab/
+fab/pcba.step

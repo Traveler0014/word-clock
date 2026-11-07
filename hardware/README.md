@@ -19,6 +19,9 @@
 | `preview/pcb_top.png` / `pcb_bottom.png` | 3D 预览 |
 | `fab/*` | Gerber + 钻孔（F.Cu/B.Cu/Mask/Paste/Silk/Edge + drl + job） |
 
+> `fab/pcba.step` 不入库（`.gitignore` 已排除）：它与 `pcba.step` 字节完全一致，
+> 只是给「自洽的 fab 包」用。要直接丢给板厂/贴片厂时手动拷：`cp pcba.step fab/`。
+
 ## 板子规格
 
 | 项 | 值 |
