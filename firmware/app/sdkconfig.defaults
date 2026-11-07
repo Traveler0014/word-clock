@@ -1,5 +1,10 @@
 # 目标芯片（与 .cargo/config.toml 的 MCU 保持一致）
 CONFIG_IDF_TARGET="esp32c5"
+# 板子 = ESP32-C5-WROOM-1-N32R8（32MB flash + 8MB PSRAM）。
+# 必须显式声明：默认值是 2MB，与实物不符时 app 镜像头里的 flash size 会写错，
+# 影响 bootloader/MMU 的 flash 窗口与 app 侧的 esp_flash 校验（曾实测出
+# release 全量 app 在 call_start_cpu0 → esp_mmu_map_init 直接 IllegalInstruction）。
+CONFIG_ESPTOOLPY_FLASHSIZE_32MB=y
 # 主控制台 = UART0（CH9102F 口，复位不断线、不会重新枚举，开发期日志稳定）。
 # 注意：Rust log 的 stdout 输出只进主控制台；USB-Serial-JTAG 口保留烧录用
 CONFIG_ESP_CONSOLE_UART_DEFAULT=y
@@ -9,3 +14,9 @@ CONFIG_ESP_MAIN_TASK_STACK_SIZE=32768
 
 # std::thread 默认栈（IDF 默认 3072 太小：std::net 初始化就会爆栈）
 CONFIG_PTHREAD_TASK_STACK_SIZE_DEFAULT=8192
+
+# Flash 时钟：N32R8 的 32MB flash 颗粒与 N16R8 不同，DIO 80MHz 下实测不可靠。
+# 症状：release 全量 app 在 call_start_cpu0 → esp_mmu_map_init（flash 时钟切换后
+# 执行的第一段 flash 常驻代码）取指得到非法指令 → Guru Meditation 重启循环；
+# 而体积更小的 diag 版 / debug 版恰好不触发。降回 40MHz 后恢复正常。
+CONFIG_ESPTOOLPY_FLASHFREQ_40M=y

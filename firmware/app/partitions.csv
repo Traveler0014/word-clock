@@ -1,0 +1,16 @@
+# 字钟分区表 —— 面向 ESP32-C5-WROOM-1-N32R8（32MB flash）
+#
+# 为什么自定义：IDF 默认 partitions_singleapp.csv 的 factory 只有 1MB，
+# release 全量 app 已 1.46MB（web 页面/字幕会继续长），必须显式放大。
+# esp-idf-sys 无法把自定义 CSV 交给 IDF 的 CMake（CONFIG_PARTITION_TABLE_CUSTOM_FILENAME
+# 是相对 IDF 工程目录的），所以这张表由 espflash 直接消费：
+#   espflash flash ... --partition-table app/partitions.csv
+#
+# 约束（不要随意动前两项的 offset，改了会丢 NVS 里的配网凭据/设置）：
+#   nvs   @0x9000 0x6000   WiFi 凭据 + 亮度/色温/时区/口令
+#   phy   @0xf000 0x1000   RF 校准
+#   app   @0x10000 4MB     余量充足，后续加 OTA 也可在 0x410000 之后追加
+# Name,   Type, SubType, Offset,   Size,     Flags
+nvs,      data, nvs,     0x9000,   0x6000,
+phy_init, data, phy,     0xf000,   0x1000,
+factory,  app,  factory, 0x10000,  0x400000,

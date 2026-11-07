@@ -44,7 +44,10 @@ cargo build -p word-clock --release --features diag
 #   303a:1001 = USB-JTAG（烧录/调试）  1a86:55d3 = UART（日志，CH343/CH9102F）
 ls -l /dev/ttyACM*        # 用 udevadm info -q property -n <port> | grep ID_VENDOR_ID 核对
 ESPFLASH_PORT=/dev/ttyACM0   # 通常 ACM0=JTAG、ACM1=UART，但务必核对后再烧
-espflash flash target/riscv32imac-esp-espidf/debug/word-clock --port $ESPFLASH_PORT
+# --flash-size 32mb + --partition-table 是 N32R8（32MB flash）板子必需的：
+# 默认 2MB/1MB factory 装不下 release 包（1.46MB），且 esp-idf-sys 不把自定义 CSV 交给 IDF CMake
+espflash flash --flash-size 32mb --partition-table app/partitions.csv \
+    target/riscv32imac-esp-espidf/release/word-clock --port $ESPFLASH_PORT
 
 # 日志（UART 口，常驻；按 VID:PID 自动找口）
 python3 tools/uart_sniff.py              # --log uart.log / --grep word_clock
@@ -68,7 +71,11 @@ python3 tools/debug_web.py                            # 浏览器点选实测亮
    - **`.ps1` 必须带 UTF-8 BOM + CRLF**：Windows PowerShell 5.1 会把无 BOM 的 UTF-8 当 GBK 读，中文会把引号吃掉导致整脚本解析失败（已踩过）。
 6. **Web handler 里绝不直接操作 WiFi / 写 NVS**：esp_http_server 是单事件任务，
    阻塞它会卡死所有请求。handler 只改 `web::Shared`，动作交给主循环（见 `web.rs` 注释）。
-7. **数据链 3.3V 直驱只在小样本验证过**：114 颗全链必须上 74AHCT125（见 `docs/wiring.md`）。电平不足的典型现象是偶发丢位 → 整行右移一位、单词缺失字母。
+7. **flash 时钟红线**：N32R8（新板，32MB）必须 `CONFIG_ESPTOOLPY_FLASHFREQ_40M`。
+   80MHz 下 release 全量包会在启动早期取指失败 → `Illegal instruction` 无限重启，
+   而 debug / `--features diag` 小包不触发，极易误判成代码 bug（详见 firmware/README.md）。
+   另外板子分 N32R8(32MB) / N16R8(16MB)，换板先核对 `CONFIG_ESPTOOLPY_FLASHSIZE_*`。
+8. **数据链 3.3V 直驱只在小样本验证过**：114 颗全链必须上 74AHCT125（见 `docs/wiring.md`）。电平不足的典型现象是偶发丢位 → 整行右移一位、单词缺失字母。
 
 ## 代码级红线（改动前先读对应注释）
 

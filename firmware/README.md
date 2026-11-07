@@ -30,6 +30,24 @@ firmware/
   - hal 0.45：对 esp32c5 支持不全且与 v5.4+ API 漂移
 - esp Rust 工具链 1.95.0（nightly fork，`build-std` 编译 std）
 
+## 板子差异（务必确认！）
+
+| 模组 | flash | PSRAM | 本仓库配置 |
+| --- | --- | --- | --- |
+| **ESP32-C5-WROOM-1-N32R8**（2026-10 起的新板） | 32MB | 8MB | 当前 `app/sdkconfig.defaults` 的目标 |
+| ESP32-C5-WROOM-1-N16R8（旧板） | 16MB | 8MB | 需删掉 `CONFIG_ESPTOOLPY_FLASHSIZE_32MB` |
+
+flash 相关配置（`app/sdkconfig.defaults` 有逐条注释，别随手改回默认值）：
+
+- `CONFIG_ESPTOOLPY_FLASHSIZE_32MB=y` —— 默认值是 2MB，与实物不符时 app 镜像头的 flash size 错误
+- `CONFIG_ESPTOOLPY_FLASHFREQ_40M=y` —— **红线**：N32R8 在 DIO 80MHz 下取指不可靠，
+  release 全量 app 会在 `call_start_cpu0 → esp_mmu_map_init`（flash 时钟切换后执行的第一段
+  flash 常驻代码）拿到非法指令，打印 `Guru Meditation (Illegal instruction)` 后无限重启。
+  诡异之处：debug 版和小体积的 `--features diag` 版不触发，只有 release 全量包中招——
+  排查时别被“debug 能跑”骗了。
+- 分区表 `app/partitions.csv`：factory 4MB（默认 singleapp 只有 1MB，装不下 1.46MB 的 release 包）。
+  esp-idf-sys 无法把自定义 CSV 交给 IDF 的 CMake，所以由 espflash 直接消费，烧录命令见 `AGENTS.md`。
+
 ## 网络
 
 构建（凭据不进固件，首次上电经配网页面写入 NVS，详见 docs/development.md）：
